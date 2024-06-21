@@ -45,12 +45,12 @@ func (c *APIClient) CreateCampaignHTML(name string, subject string, lists []uint
   service.Subject(subject)
   service.Lists(lists)
   service.Body(content)
+  service.ContentType("html")
 	fmt.Println("Creating campaign")
   campaign, err := service.Do(context.Background())
 	if err != nil {
 		return 0, err
 	}
-  // TODO: There is also campaign.CampaignID, check if it's the same
 	return campaign.Id, err
 }
 
@@ -64,6 +64,7 @@ func (c *APIClient) deleteCampaign(campaign *listmonk.Campaign) error{
 func (c *APIClient) getSubscribersAfterLaunch(campaign *listmonk.Campaign) ([] *listmonk.Subscriber, error){
   // Check if there already was an incremental campaign. If so, only search for
   // subscribers who subscribed after inc. campaign launch.
+  fmt.Println("Checking for already-existing incremental campaign")
   getCampaignsService := c.Client.NewGetCampaignsService()
   campaigns, err := getCampaignsService.Do(context.Background())
 
@@ -91,7 +92,6 @@ func (c *APIClient) getSubscribersAfterLaunch(campaign *listmonk.Campaign) ([] *
 
   var query string
   if inc_campaign != nil{
-    fmt.Println(incCampaignLaunchDate)
     query = fmt.Sprintf("id IN (SELECT subscriber_id FROM subscriber_lists WHERE created_at > '%v' AND list_id IN (%s))", incCampaignLaunchDate, strings.Join(listIDs, ","))
   }else
   {
@@ -110,9 +110,6 @@ func (c *APIClient) addSubscribersToList(subscribers [] *listmonk.Subscriber, li
   subscriberIDs := make([]uint, len(subscribers))
   for i, subscriber := range subscribers {
     subscriberIDs[i] = subscriber.Id
-  }
-  for _, s := range subscriberIDs {
-    fmt.Println(s)
   }
   subscribersListsService.ListIds([]uint{list.Id})
   subscribersListsService.Ids(subscriberIDs)
@@ -137,6 +134,7 @@ func (c *APIClient) createIncCampaign(campaign *listmonk.Campaign, tempList *lis
   createCampaignService.TemplateId(campaign.TemplateId)
   createCampaignService.Tags(campaign.Tags)
 
+  fmt.Println("Creating incremental campaign")
   return createCampaignService.Do(context.Background())
 
 }
@@ -196,6 +194,8 @@ func (c *APIClient) ResumeCampaign(id uint) (bool, error) {
   updateCampaignStatusService := c.Client.NewUpdateCampaignStatusService()
   updateCampaignStatusService.Id(incCampaign.Id)
   updateCampaignStatusService.Status("running")
+
+  fmt.Println("Launching incremental campaign")
   _, err = updateCampaignStatusService.Do(context.Background())
   
   if err != nil {
