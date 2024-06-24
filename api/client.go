@@ -2,30 +2,77 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+
 	listmonk "github.com/Exayn/go-listmonk"
 )
 
 type APIClient struct {
-	BaseURL  string
-	Username *string
-	Password *string
-	Client   *listmonk.Client
+	BaseURL        string
+	Username       *string
+	Password       *string
+	Client         *listmonk.Client
+	MailingListIDs map[string]uint
+}
+
+func mapping[T, U any](ts []T, f func(T) U) []U {
+	us := make([]U, len(ts))
+	for i := range ts {
+		us[i] = f(ts[i])
+	}
+	return us
 }
 
 func NewAPIClient(baseURL string, username, password *string) *APIClient {
-	return &APIClient{
+	client := &APIClient{
 		BaseURL:  baseURL,
 		Username: username,
 		Password: password,
 		Client:   listmonk.NewClient(baseURL, username, password),
 	}
+	err := client.setListIDs()
+	if err != nil {
+		panic(err)
+	}
+	return client
 }
 
-// Create a new subscriber and add them to specified mailing lists
-func (c *APIClient) CreateSubscriber(name string, email string, lists []uint) (uint, error) {
+func (c *APIClient) setListIDs() error {
+	c.MailingListIDs = make(map[string]uint)
+	getListsService := c.Client.NewGetListsService()
+	lists, err := getListsService.Do(context.Background())
+
+	if err != nil {
+		return err
+	}
+
+	for _, list := range lists {
+		c.MailingListIDs[list.Name] = list.Id
+	}
+
+	return nil
+}
+
+// Create new list and update MailingListIDs map
+func (c *APIClient) createList(name string) (*listmonk.List, error){
+	createListService := c.Client.NewCreateListService()
+	createListService.Name(name)
+	list, err := createListService.Do(context.Background())
+
+  if err != nil {
+    return nil, err
+  }
+
+  c.MailingListIDs[list.Name] = list.Id
+  return list, nil
+}
+
+// Create a new subscriber and add them to mailing lists with specified IDs
+func (c *APIClient) CreateSubscriberListIDs(name string, email string, lists []uint) (uint, error) {
 	service := c.Client.NewCreateSubscriberService()
 	service.Email(email)
 	service.Name(name)
@@ -38,179 +85,375 @@ func (c *APIClient) CreateSubscriber(name string, email string, lists []uint) (u
 	return subscriber.Id, nil
 }
 
+// Create a new subsciber and add them to mailing lists with specified names
+func (c *APIClient) CreateSubscriber(name string, email string, lists []string) (uint, error){
+  m := func (listName string) uint{return c.MailingListIDs[listName]} 
+  return c.CreateSubscriberListIDs(name, email, mapping(lists, m))
+}
+
 // Create a new campaign with HTML content
 func (c *APIClient) CreateCampaignHTML(name string, subject string, lists []uint, content string) (uint, error) {
-  service := c.Client.NewCreateCampaignService()
-  service.Name(name)
-  service.Subject(subject)
-  service.Lists(lists)
-  service.Body(content)
-  service.ContentType("html")
+	service := c.Client.NewCreateCampaignService()
+	service.Name(name)
+	service.Subject(subject)
+	service.Lists(lists)
+	service.Body(content)
+	service.ContentType("html")
 	fmt.Println("Creating campaign")
-  campaign, err := service.Do(context.Background())
+	campaign, err := service.Do(context.Background())
 	if err != nil {
 		return 0, err
 	}
 	return campaign.Id, err
 }
 
-func (c *APIClient) deleteCampaign(campaign *listmonk.Campaign) error{
-  deleteCampaignService := c.Client.NewDeleteCampaignService()
-  deleteCampaignService.Id(campaign.Id)
-  return deleteCampaignService.Do(context.Background())
+func (c *APIClient) deleteCampaign(campaign *listmonk.Campaign) error {
+	deleteCampaignService := c.Client.NewDeleteCampaignService()
+	deleteCampaignService.Id(campaign.Id)
+	return deleteCampaignService.Do(context.Background())
 }
 
 // Get users who subscribed after campaign was launched
-func (c *APIClient) getSubscribersAfterLaunch(campaign *listmonk.Campaign) ([] *listmonk.Subscriber, error){
-  // Check if there already was an incremental campaign. If so, only search for
-  // subscribers who subscribed after inc. campaign launch.
-  fmt.Println("Checking for already-existing incremental campaign")
-  getCampaignsService := c.Client.NewGetCampaignsService()
-  campaigns, err := getCampaignsService.Do(context.Background())
+func (c *APIClient) getSubscribersAfterLaunch(campaign *listmonk.Campaign) ([]*listmonk.Subscriber, error) {
+	// Check if there already was an incremental campaign. If so, only search for
+	// subscribers who subscribed after inc. campaign launch.
+	fmt.Println("Checking for already-existing incremental campaign")
+	getCampaignsService := c.Client.NewGetCampaignsService()
+	campaigns, err := getCampaignsService.Do(context.Background())
 
-  if err != nil {
-    return nil, err
-  }
+	if err != nil {
+		return nil, err
+	}
 
-  var inc_campaign *listmonk.Campaign = nil
-  var incCampaignLaunchDate string
-  for _, camp := range campaigns {
-    if camp.Name == campaign.Name + "_inc"{
-      inc_campaign = camp
-      incCampaignLaunchDate = inc_campaign.StartedAt.Format("2006-01-02T15:04:05.999999-07:00")
-      c.deleteCampaign(camp) 
-      break
-    }
-  }
-  
-  listIDs := make([]string, len(campaign.Lists))
-  for i, list := range campaign.Lists {
-    listIDs[i] = strconv.Itoa(int(list.Id))
-  }
+	var inc_campaign *listmonk.Campaign = nil
+	var incCampaignLaunchDate string
+	for _, camp := range campaigns {
+		if camp.Name == campaign.Name+"_inc" {
+			inc_campaign = camp
+			incCampaignLaunchDate = inc_campaign.StartedAt.Format("2006-01-02T15:04:05.999999-07:00")
+			c.deleteCampaign(camp)
+			break
+		}
+	}
 
-  launchDate := campaign.StartedAt.Format("2006-01-02T15:04:05.999999-07:00")
+	m := func(l listmonk.CampaignList) string { return strconv.Itoa(int(l.Id)) }
+	listIDs := mapping(campaign.Lists, m)
 
-  var query string
-  if inc_campaign != nil{
-    query = fmt.Sprintf("id IN (SELECT subscriber_id FROM subscriber_lists WHERE created_at > '%v' AND list_id IN (%s))", incCampaignLaunchDate, strings.Join(listIDs, ","))
-  }else
-  {
-    query = fmt.Sprintf("id IN (SELECT subscriber_id FROM subscriber_lists WHERE created_at >'%v' AND list_id IN (%s))", launchDate, strings.Join(listIDs, ","))
-  }
+	launchDate := campaign.StartedAt.Format("2006-01-02T15:04:05.999999-07:00")
 
-  getSubscribersService := c.Client.NewGetSubscribersService()
-  getSubscribersService.Query(query)
+	var query string
+	if inc_campaign != nil {
+		query = fmt.Sprintf("id IN (SELECT subscriber_id FROM subscriber_lists WHERE created_at > '%v' AND list_id IN (%s))", incCampaignLaunchDate, strings.Join(listIDs, ","))
+	} else {
+		query = fmt.Sprintf("id IN (SELECT subscriber_id FROM subscriber_lists WHERE created_at >'%v' AND list_id IN (%s))", launchDate, strings.Join(listIDs, ","))
+	}
 
-  fmt.Println("Fetching new subscribers")
-  return getSubscribersService.Do(context.Background())
+	getSubscribersService := c.Client.NewGetSubscribersService()
+	getSubscribersService.Query(query)
+
+	fmt.Println("Fetching new subscribers")
+	return getSubscribersService.Do(context.Background())
 }
 
-func (c *APIClient) addSubscribersToList(subscribers [] *listmonk.Subscriber, list *listmonk.List) error { 
-  subscribersListsService := c.Client.NewUpdateSubscribersListsService()
-  subscriberIDs := make([]uint, len(subscribers))
-  for i, subscriber := range subscribers {
-    subscriberIDs[i] = subscriber.Id
-  }
-  subscribersListsService.ListIds([]uint{list.Id})
-  subscribersListsService.Ids(subscriberIDs)
-  subscribersListsService.Action("add")
-  _, err := subscribersListsService.Do(context.Background())
-  return err
+func (c *APIClient) addSubscribersToList(subscribers []*listmonk.Subscriber, list *listmonk.List) error {
+	subscribersListsService := c.Client.NewUpdateSubscribersListsService()
+
+	m := func(s *listmonk.Subscriber) uint { return s.Id }
+
+	subscriberIDs := mapping(subscribers, m)
+	for i, subscriber := range subscribers {
+		subscriberIDs[i] = subscriber.Id
+	}
+	subscribersListsService.ListIds([]uint{list.Id})
+	subscribersListsService.Ids(subscriberIDs)
+	subscribersListsService.Action("add")
+	_, err := subscribersListsService.Do(context.Background())
+	return err
 }
 
 // Create incremental campaign from an existing one
-func (c *APIClient) createIncCampaign(campaign *listmonk.Campaign, tempList *listmonk.List) (*listmonk.Campaign, error){
-  createCampaignService := c.Client.NewCreateCampaignService()
-  createCampaignService.Name(campaign.Name + "_inc")
+func (c *APIClient) createIncCampaign(campaign *listmonk.Campaign, tempList *listmonk.List) (*listmonk.Campaign, error) {
+	createCampaignService := c.Client.NewCreateCampaignService()
+	createCampaignService.Name(campaign.Name + "_inc")
 
-  //Copy fields from original campaign
-  createCampaignService.Subject(campaign.Subject)
-  createCampaignService.Type(campaign.Type)
-  createCampaignService.Body(campaign.Body)
-  createCampaignService.Lists([]uint{tempList.Id})
-  createCampaignService.ContentType(campaign.ContentType)
-  createCampaignService.FromEmail(campaign.FromEmail)
-  createCampaignService.Messenger(campaign.Messenger)
-  createCampaignService.TemplateId(campaign.TemplateId)
-  createCampaignService.Tags(campaign.Tags)
+	//Copy fields from original campaign
+	createCampaignService.Subject(campaign.Subject)
+	createCampaignService.Type(campaign.Type)
+	createCampaignService.Body(campaign.Body)
+	createCampaignService.Lists([]uint{tempList.Id})
+	createCampaignService.ContentType(campaign.ContentType)
+	createCampaignService.FromEmail(campaign.FromEmail)
+	createCampaignService.Messenger(campaign.Messenger)
+	createCampaignService.TemplateId(campaign.TemplateId)
+	createCampaignService.Tags(campaign.Tags)
 
-  fmt.Println("Creating incremental campaign")
-  return createCampaignService.Do(context.Background())
+	fmt.Println("Creating incremental campaign")
+	return createCampaignService.Do(context.Background())
 
 }
-// Send finished campaign to newly subscribed users. Return bool indicating
-// whether the operation was performed.
-func (c *APIClient) ResumeCampaign(id uint) (bool, error) {
+
+// Launch campaign or send finished campaign to newly subscribed users.
+// Return bool indicating whether the operation was performed.
+func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 	// Fetch campaign launch date and mailing lists
-  getCampaignService := c.Client.NewGetCampaignService()
-  getCampaignService.Id(id)
+	getCampaignService := c.Client.NewGetCampaignService()
+	getCampaignService.Id(id)
 
-  fmt.Println("Fetching campaign data")
-  campaign, err := getCampaignService.Do(context.Background())
+	fmt.Println("Fetching campaign data")
 
-  if err != nil {
-    return false, err
+	campaign, err := getCampaignService.Do(context.Background())
+
+	if err != nil {
+    fmt.Println("No such campaign")
+		return false, err
+	}
+
+	if len(campaign.Lists) == 0 {
+		fmt.Println("The campaign targets no mailing lists")
+		return false, nil
+	}
+
+  // If campaign has never been launched - launch it
+  if campaign.StartedAt.IsZero() {
+    updateCampaignStatusService := c.Client.NewUpdateCampaignStatusService()
+    updateCampaignStatusService.Id(id)
+    updateCampaignStatusService.Status("running")
+
+    fmt.Println("Launching campaign")
+    _, err := updateCampaignStatusService.Do(context.Background())
+    if err != nil {
+      return false, err
+    }
+    return true, nil
   }
 
-  if len(campaign.Lists) == 0 {
-    fmt.Println("The campaign targets no mailing lists")
-    return false, nil
-  }
+	subscribers, err := c.getSubscribersAfterLaunch(campaign)
 
-  subscribers, err := c.getSubscribersAfterLaunch(campaign)
-  
-  if err != nil {
-    return false, err
-  }
+	if err != nil {
+		return false, err
+	}
 
-  if len(subscribers) == 0 {
-    fmt.Println("No new subscribers since last launch")
-    return false, nil
-  }
-  
-  // Create temporary list 
-  createListService := c.Client.NewCreateListService()
-  createListService.Name("temp_list")
-  tempList, err := createListService.Do(context.Background())
+	if len(subscribers) == 0 {
+		fmt.Println("No new subscribers since last launch")
+		return false, nil
+	}
 
-  if err != nil {
-    return false, err
-  }
+	// Create temporary list
+	tempList, err := c.createList("temp_list")
 
-  // Add subscribers to temporary list
-  err = c.addSubscribersToList(subscribers, tempList) 
+	if err != nil {
+		return false, err
+	}
 
-  if err != nil {
-    return false, err
-  }
+	// Add subscribers to temporary list
+	err = c.addSubscribersToList(subscribers, tempList)
 
-  incCampaign, err := c.createIncCampaign(campaign, tempList)
+	if err != nil {
+		return false, err
+	}
 
-  if err != nil {
-    return false, err
-  }
+	incCampaign, err := c.createIncCampaign(campaign, tempList)
 
-  //Launch incremental campaign
-  updateCampaignStatusService := c.Client.NewUpdateCampaignStatusService()
-  updateCampaignStatusService.Id(incCampaign.Id)
-  updateCampaignStatusService.Status("running")
+	if err != nil {
+		return false, err
+	}
 
-  fmt.Println("Launching incremental campaign")
-  _, err = updateCampaignStatusService.Do(context.Background())
-  
-  if err != nil {
-    return false, err
-  }
-  
-  // Remove temporary list
-  deleteListService := c.Client.NewDeleteListService()
-  deleteListService.Id(tempList.Id)
-  err = deleteListService.Do(context.Background())
+	//Launch incremental campaign
+	updateCampaignStatusService := c.Client.NewUpdateCampaignStatusService()
+	updateCampaignStatusService.Id(incCampaign.Id)
+	updateCampaignStatusService.Status("running")
 
-  if err != nil {
-    return false, err
-  }
+	fmt.Println("Launching incremental campaign")
+	_, err = updateCampaignStatusService.Do(context.Background())
+
+	if err != nil {
+		return false, err
+	}
+
+	// Remove temporary list
+	deleteListService := c.Client.NewDeleteListService()
+	deleteListService.Id(tempList.Id)
+	err = deleteListService.Do(context.Background())
+
+	if err != nil {
+		return false, err
+	}
 
 	return true, nil
 }
 
+// Delete subscriber by ID
+func (c *APIClient) DeleteSubscriberID(id uint) error {
+	deleteSubscriberService := c.Client.NewDeleteSubscriberService()
+	deleteSubscriberService.Id(id)
+	_, err := deleteSubscriberService.Do(context.Background())
+	return err
+}
+
+// Get ID of subscriber with given email
+func (c *APIClient) getSubscriberID(email string) (uint, error) {
+	getSubscribersService := c.Client.NewGetSubscribersService()
+	getSubscribersService.Query(fmt.Sprintf("subscribers.email = '%s'", email))
+	subscribers, err := getSubscribersService.Do(context.Background())
+
+	if err != nil {
+		return 0, err
+	}
+
+	if len(subscribers) == 0 {
+		return 0, fmt.Errorf("Could not find subscriber with email %s", email)
+	}
+	if len(subscribers) > 1 {
+		return 0, fmt.Errorf("Query returned too many results")
+	}
+	return subscribers[0].Id, nil
+}
+
+// Delete subscriber by email
+func (c *APIClient) DeleteSubscriberEmail(email string) error {
+	subscriberID, err := c.getSubscriberID(email)
+
+	if err != nil {
+		return err
+	}
+
+	return c.DeleteSubscriberID(subscriberID)
+}
+
+// Add subscribers from CSV file. Return names of lists that were affected.
+func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
+	file, err := os.Open(path)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+
+	if err != nil {
+		return nil, err
+	}
+
+  // Set-like structure to keep names of lists to which subscribers
+  listNames := make(map[string]bool)
+
+	for _, record := range records {
+		name := record[0]
+		email := record[1]
+		list := record[2]
+    listNames[list] = true
+		_, err := c.CreateSubscriber(name, email, []string{list})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+  listNamesSlice := make([]string, len(listNames))
+  for name := range listNames {
+    listNamesSlice = append(listNamesSlice, name)
+  }
+	return listNamesSlice, nil
+}
+
+// Create campaign from HTML on a list given by name.
+func (c *APIClient) CreateCampaignHTMLOnListName(campaigName string, subject string, listName string, content string) (uint, error) {
+	getListsService := c.Client.NewGetListsService()
+	lists, err := getListsService.Do(context.Background())
+
+	if err != nil {
+		return 0, err
+	}
+
+	for _, list := range lists {
+		if list.Name == listName {
+			return c.CreateCampaignHTML(campaigName, subject, []uint{list.Id}, content)
+		}
+	}
+	return 0, fmt.Errorf("Could not find list %s", listName)
+}
+
+// Modify subscriber list memberships.
+func (c *APIClient) updateSubscriberLists(email string, listNames []string, action string) error {
+	subscriberID, err := c.getSubscriberID(email)
+
+	if err != nil {
+		return err
+	}
+
+	m := func(listName string) uint { return c.MailingListIDs[listName] }
+
+	listIDs := mapping(listNames, m)
+	subscribersListsService := c.Client.NewUpdateSubscribersListsService()
+	subscribersListsService.Ids([]uint{subscriberID})
+	subscribersListsService.ListIds(listIDs)
+	subscribersListsService.Action(action)
+	_, err = subscribersListsService.Do(context.Background())
+	return err
+}
+
+// Remove subscriber from a list
+func (c *APIClient) RemoveFromList(email string, listName string) error {
+	return c.updateSubscriberLists(email, []string{listName}, "remove")
+}
+
+// Add subscriber to list
+func (c *APIClient) AddToList(email string, listName string) error {
+	return c.updateSubscriberLists(email, []string{listName}, "add")
+}
+
+// Launch campaign on list
+func (c *APIClient) LaunchCampaignListName(listName string) (bool, error) {
+  getCampaignsService := c.Client.NewGetCampaignsService()
+  campaigns, err := getCampaignsService.Do(context.Background())
+
+  if err != nil {
+    return false, nil
+  }
+
+  for _, campaign := range campaigns {
+    for _, list := range campaign.Lists {
+      if list.Name == listName {
+        return c.LaunchCampaign(campaign.Id)
+      }
+    }
+  }
+  return false, nil
+}
+// Add subscriber to list and launch campaign
+func (c* APIClient) AddAndSendCampaign(email string, listName string) (bool, error) {
+  err := c.AddToList(email, listName)
+
+  if err != nil {
+    return false, err
+  }
+
+  return c.LaunchCampaignListName(listName)
+}
+
+// Add subscribers from CSV and launch campaigns of affected lists. Return true
+// if all campaigns were launched successfully
+func (c* APIClient) AddCSVAndSendCampaign(path string) (bool, error){
+  lists, err := c.AddSubscribersFromCSV(path)
+
+  if err != nil {
+    return false, err
+  }
+
+  allSucceeded := true
+  for _, list := range lists {
+    resumed, err := c.LaunchCampaignListName(list)
+
+    if err != nil {
+      return false, err
+    }
+
+    if !resumed {
+      allSucceeded = false
+    }
+  }
+
+  return allSucceeded, nil
+}
