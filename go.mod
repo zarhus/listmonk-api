@@ -1,4 +1,4 @@
-module 3mdeb/listmonk-cli
+module 3mdeb/listmonk-api
 
 go 1.22.2
 
