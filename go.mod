@@ -1,4 +1,4 @@
-module 3mdeb/listmonk-api
+module github.com/zarhus/listmonk-api
 
 go 1.22.2
 

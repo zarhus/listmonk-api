@@ -16,6 +16,16 @@ func check(e error) {
 	}
 }
 
+func initAPIClient() *APIClient {
+	username := ""
+	password := ""
+	hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
+	if !exists {
+		hostname = "0.0.0.0"
+	}
+	return NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+}
+
 func deleteCampaign(client *APIClient, id uint) {
 	deleteCampaignService := client.Client.NewDeleteCampaignService()
 	deleteCampaignService.Id(id)
@@ -38,13 +48,7 @@ func deleteList(client *APIClient, id uint) {
 }
 
 func TestCreateSubscriberListIDs(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 
 	t.Run("correct input data", func(t *testing.T) {
 		name := "John Doe"
@@ -82,13 +86,7 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 }
 
 func TestCreateCampaignHTML(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 	t.Run("correct input data", func(t *testing.T) {
 		htmlString := ` <!DOCTYPE html>
 <html>
@@ -131,13 +129,7 @@ func TestCreateCampaignHTML(t *testing.T) {
 }
 
 func TestDeleteCampaign(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create a campaign
@@ -173,13 +165,8 @@ func TestDeleteCampaign(t *testing.T) {
 }
 
 func TestAddSubscribersToList(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create subscribers and list
 		createListService := client.Client.NewCreateListService()
@@ -241,13 +228,7 @@ func TestAddSubscribersToList(t *testing.T) {
 }
 
 func TestCreateIncCampaign(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create base campaign and temp list
@@ -283,13 +264,7 @@ func TestCreateIncCampaign(t *testing.T) {
 }
 
 func TestLaunchCampaign(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 
 	t.Run("resume with correct data", func(t *testing.T) {
 		// Set up test - create and launch campaign with subscribers
@@ -479,13 +454,8 @@ func TestLaunchCampaign(t *testing.T) {
 }
 
 func TestDeleteSubscriberID(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create subscribers
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -517,13 +487,8 @@ func TestDeleteSubscriberID(t *testing.T) {
 }
 
 func TestDeleteSubscriberEmail(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create subscriber
 		email := "user1@test.com"
@@ -553,13 +518,8 @@ func TestDeleteSubscriberEmail(t *testing.T) {
 }
 
 func TestCreateCampaignHTMLOnListName(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create list
 		listName := "testlist"
@@ -607,13 +567,8 @@ func TestCreateCampaignHTMLOnListName(t *testing.T) {
 }
 
 func TestRemoveFromList(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - Create subscriber and lists
 		listIDs := make([]uint, 2)
@@ -653,13 +608,8 @@ func TestRemoveFromList(t *testing.T) {
 }
 
 func TestAddToList(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - Create subscriber and list
 		createListService := client.Client.NewCreateListService()
@@ -695,13 +645,8 @@ func TestAddToList(t *testing.T) {
 }
 
 func TestAddAndSendCampaign(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
+
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create list, campaign and subscriber
 		createListService := client.Client.NewCreateListService()
@@ -754,13 +699,7 @@ func TestAddAndSendCampaign(t *testing.T) {
 }
 
 func TestLaunchCampaignListName(t *testing.T) {
-	username := ""
-	password := ""
-  hostname, exists := os.LookupEnv("LISTMONK_HOSTNAME")
-  if !exists {
-    hostname = "0.0.0.0"
-  }
-	client := NewAPIClient(fmt.Sprintf("http://%s:9000", hostname), &username, &password)
+	client := initAPIClient()
 
 	t.Run("correct data", func(t *testing.T) {
 		// Set up test - create campaign with subscribers

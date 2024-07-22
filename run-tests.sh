@@ -12,6 +12,6 @@ cd api
 
 sleep 5
 
-go test $1
+go test "$@"
 
 docker stop $started_containers > /dev/null
