@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"fmt"
-	"github.com/Exayn/go-listmonk"
-	"github.com/stretchr/testify/assert"
 	"os"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/Exayn/go-listmonk"
+	"github.com/stretchr/testify/assert"
 )
 
 func check(e error) {
@@ -173,7 +175,9 @@ func TestAddSubscribersToList(t *testing.T) {
 		createListService.Name("tmp")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list ID in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -212,7 +216,7 @@ func TestAddSubscribersToList(t *testing.T) {
 		createListService.Name("tmp")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		// This subscriber does not exist
@@ -245,7 +249,9 @@ func TestCreateIncCampaign(t *testing.T) {
 		createListService.Name("tmp")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		incCampaign, err := client.createIncCampaign(baseCampaign, list)
@@ -272,7 +278,9 @@ func TestLaunchCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 4)
@@ -352,7 +360,9 @@ func TestLaunchCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -403,7 +413,9 @@ func TestLaunchCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -449,7 +461,6 @@ func TestLaunchCampaign(t *testing.T) {
 		assert.NotNil(t, campaign)
 		assert.True(t, campaign.Status == "running" || campaign.Status == "finished")
 		assert.Equal(t, baseCampaign.Body, campaign.Body)
-
 	})
 }
 
@@ -473,7 +484,7 @@ func TestDeleteSubscriberID(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		// Check if the subscruber was deleted
+		// Check if the subscriber was deleted
 		getSubscribersService := client.Client.NewGetSubscribersService()
 		updatedSubscribers, err := getSubscribersService.Do(context.Background())
 
@@ -527,8 +538,11 @@ func TestCreateCampaignHTMLOnListName(t *testing.T) {
 		createListService.Name(listName)
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list ID in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
+
 		htmlString := ` <!DOCTYPE html>
 <html>
 <body>
@@ -577,7 +591,9 @@ func TestRemoveFromList(t *testing.T) {
 			createListService.Name(fmt.Sprintf("list%d", i))
 			list, err := createListService.Do(context.Background())
 			check(err)
-			client.MailingListIDs[list.Name] = list.Id
+
+			// Store the list in sync.Map
+			client.MailingListIDs.Store(list.Name, list.Id)
 			listIDs[i] = list.Id
 			defer deleteList(client, list.Id)
 		}
@@ -616,7 +632,9 @@ func TestAddToList(t *testing.T) {
 		createListService.Name("list")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		email := "user@test.com"
@@ -653,7 +671,9 @@ func TestAddAndSendCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		createCampaignService := client.Client.NewCreateCampaignService()
@@ -707,7 +727,9 @@ func TestLaunchCampaignListName(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -759,4 +781,60 @@ func TestLaunchCampaignListName(t *testing.T) {
 		launched, _ := client.LaunchCampaignListName("no such list")
 		assert.False(t, launched)
 	})
+}
+
+func TestMailingListIDsConcurrency(t *testing.T) {
+	client := initAPIClient()
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	// Generate unique list names
+	listNames := make([]string, numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		listNames[i] = fmt.Sprintf("concurrent-test-list-%d", i)
+	}
+
+	createAndGetListID := func(listName string) {
+		defer wg.Done()
+
+		// Create list
+		list, err := client.createList(listName)
+		if err != nil {
+			t.Errorf("Error creating list %s: %v", listName, err)
+			return
+		}
+		defer deleteList(client, list.Id)
+
+		// Get list ID
+		id, err := client.getListID(listName)
+		if err != nil {
+			t.Errorf("Error getting list ID for %s: %v", listName, err)
+			return
+		}
+
+		if id != list.Id {
+			t.Errorf("List ID mismatch for %s: expected %d, got %d", listName, list.Id, id)
+		}
+
+		// Simulate concurrent reads and writes
+		for j := 0; j < 5; j++ {
+			go func(j int) {
+				// Concurrently get list ID
+				concurrentID, err := client.getListID(listName)
+				if err != nil {
+					t.Errorf("Goroutine %d: Error getting list ID for %s: %v", j, listName, err)
+				} else if concurrentID != list.Id {
+					t.Errorf("Goroutine %d: List ID mismatch for %s: expected %d, got %d", j, listName, list.Id, concurrentID)
+				}
+			}(j)
+		}
+	}
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go createAndGetListID(listNames[i])
+	}
+
+	wg.Wait()
 }
