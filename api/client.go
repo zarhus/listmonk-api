@@ -1,8 +1,10 @@
+// File: client.go
 package api
 
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -18,6 +20,13 @@ type APIClient struct {
 	Password       *string
 	Client         *listmonk.Client
 	MailingListIDs sync.Map
+}
+
+type SubscriberInput struct {
+	Name  string                 `json:"name"`
+	Email string                 `json:"email"`
+	Lists []string               `json:"lists"`
+	Attrs map[string]interface{} `json:"attrs"`
 }
 
 func mapping[T, U any](ts []T, f func(T) U) []U {
@@ -79,8 +88,8 @@ func (c *APIClient) getListID(name string) (uint, error) {
 	return 0, fmt.Errorf("list not found: %s", name)
 }
 
-// Create a new subscriber and add them to mailing lists with specified names
-func (c *APIClient) CreateSubscriber(name string, email string, lists []string) (uint, error) {
+// Create a new subscriber and add them to mailing lists with specified names, including attributes
+func (c *APIClient) CreateSubscriber(name string, email string, lists []string, attrs map[string]interface{}) (uint, error) {
 	listIDs := mapping(lists, func(listName string) uint {
 		id, err := c.getListID(listName)
 		if err != nil {
@@ -88,21 +97,32 @@ func (c *APIClient) CreateSubscriber(name string, email string, lists []string) 
 		}
 		return id
 	})
-	return c.CreateSubscriberListIDs(name, email, listIDs)
+	return c.CreateSubscriberListIDs(name, email, listIDs, attrs)
 }
 
-// Create a new subscriber and add them to mailing lists with specified IDs
-func (c *APIClient) CreateSubscriberListIDs(name string, email string, lists []uint) (uint, error) {
+// Create a new subscriber and add them to mailing lists with specified IDs, including attributes
+func (c *APIClient) CreateSubscriberListIDs(name string, email string, lists []uint, attrs map[string]interface{}) (uint, error) {
 	service := c.Client.NewCreateSubscriberService()
 	service.Email(email)
 	service.Name(name)
 	service.ListIds(lists)
-	fmt.Println("Creating subscriber")
+	service.Attributes(attrs) // Set the attributes here
+	fmt.Println("Creating subscriber with attributes")
 	subscriber, err := service.Do(context.Background())
 	if err != nil {
 		return 0, err
 	}
 	return subscriber.Id, nil
+}
+
+// Create a new subscriber from JSON data
+func (c *APIClient) CreateSubscriberFromJSON(jsonData []byte) (uint, error) {
+	var input SubscriberInput
+	err := json.Unmarshal(jsonData, &input)
+	if err != nil {
+		return 0, err
+	}
+	return c.CreateSubscriber(input.Name, input.Email, input.Lists, input.Attrs)
 }
 
 // Create a new campaign with HTML content
@@ -328,31 +348,47 @@ func (c *APIClient) DeleteSubscriberEmail(email string) error {
 }
 
 // Add subscribers from CSV file. Return names of lists that were affected.
+// Assumes CSV has columns: Name, Email, List, Attributes (JSON)
 func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
 	file, err := os.Open(path)
-
 	if err != nil {
 		return nil, err
 	}
-
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
-
 	if err != nil {
 		return nil, err
 	}
+
+	if len(records) < 1 {
+		return nil, fmt.Errorf("no records found")
+	}
+
+	// Skip the header row
+	records = records[1:]
 
 	// Set-like structure to keep names of lists to which subscribers were added
 	listNames := make(map[string]bool)
 
 	for _, record := range records {
+		if len(record) < 4 {
+			return nil, fmt.Errorf("invalid record: %v", record)
+		}
+
 		name := record[0]
 		email := record[1]
 		list := record[2]
+		attrsJSON := record[3]
+
+		var attrs map[string]interface{}
+		if err := json.Unmarshal([]byte(attrsJSON), &attrs); err != nil {
+			return nil, fmt.Errorf("invalid JSON in attributes column: %v", err)
+		}
+
 		listNames[list] = true
-		_, err := c.CreateSubscriber(name, email, []string{list})
+		_, err = c.CreateSubscriber(name, email, []string{list}, attrs)
 		if err != nil {
 			return nil, err
 		}
@@ -366,7 +402,7 @@ func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
 }
 
 // Create campaign from HTML on a list given by name.
-func (c *APIClient) CreateCampaignHTMLOnListName(campaigName string, subject string, listName string, content string) (uint, error) {
+func (c *APIClient) CreateCampaignHTMLOnListName(campaignName string, subject string, listName string, content string) (uint, error) {
 	getListsService := c.Client.NewGetListsService()
 	lists, err := getListsService.Do(context.Background())
 
@@ -376,7 +412,7 @@ func (c *APIClient) CreateCampaignHTMLOnListName(campaigName string, subject str
 
 	for _, list := range lists {
 		if list.Name == listName {
-			return c.CreateCampaignHTML(campaigName, subject, []uint{list.Id}, content)
+			return c.CreateCampaignHTML(campaignName, subject, []uint{list.Id}, content)
 		}
 	}
 	return 0, fmt.Errorf("Could not find list %s", listName)
@@ -470,4 +506,47 @@ func (c *APIClient) AddCSVAndSendCampaign(path string) (bool, error) {
 	}
 
 	return allSucceeded, nil
+}
+
+// GetSubscriber retrieves a subscriber by ID
+func (c *APIClient) GetSubscriber(subscriberID uint) (*listmonk.Subscriber, error) {
+	service := c.Client.NewGetSubscriberService()
+	service.Id(subscriberID)
+	subscriber, err := service.Do(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return subscriber, nil
+}
+
+// GetSubscriberAttributes retrieves a subscriber's attributes by ID
+func (c *APIClient) GetSubscriberAttributes(subscriberID uint) (map[string]interface{}, error) {
+	subscriber, err := c.GetSubscriber(subscriberID)
+	if err != nil {
+		return nil, err
+	}
+	return subscriber.Attributes, nil
+}
+
+// UpdateSubscriberAttributes updates a subscriber's attributes
+func (c *APIClient) UpdateSubscriberAttributes(subscriberID uint, attrs map[string]interface{}) error {
+	// Get the current subscriber details
+	subscriber, err := c.GetSubscriber(subscriberID)
+	if err != nil {
+		return err
+	}
+
+	service := c.Client.NewUpdateSubscriberService()
+	service.Id(subscriberID)
+	service.Email(subscriber.Email) // Set the email
+	service.Name(subscriber.Name)   // Set the name
+	service.Status(subscriber.Status)
+	// Extract list IDs from subscriber's lists
+	listIDs := mapping(subscriber.Lists, func(l listmonk.SubscriberList) uint { return l.Id })
+	service.ListIds(listIDs)
+	service.Attributes(attrs) // Use Attribs instead of Attrs
+
+	fmt.Println("Updating subscriber attributes")
+	_, err = service.Do(context.Background())
+	return err
 }
