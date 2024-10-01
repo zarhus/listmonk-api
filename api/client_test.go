@@ -1,13 +1,18 @@
+// File: client_test.go
 package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/Exayn/go-listmonk"
-	"github.com/stretchr/testify/assert"
 	"os"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/Exayn/go-listmonk"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func check(e error) {
@@ -54,8 +59,12 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 		name := "John Doe"
 		email := "john.doe@example.com"
 		list_ids := []uint{1, 3}
+		attrs := map[string]interface{}{
+			"age":    30,
+			"gender": "male",
+		}
 
-		id, err := client.CreateSubscriberListIDs(name, email, list_ids)
+		id, err := client.CreateSubscriberListIDs(name, email, list_ids, attrs)
 
 		assert.NoError(t, err)
 
@@ -69,6 +78,13 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, subscribers[0].Id, id)
+
+		// Convert actual "age" to int for comparison
+		if ageFloat, ok := subscribers[0].Attributes["age"].(float64); ok {
+			subscribers[0].Attributes["age"] = int(ageFloat)
+		}
+
+		assert.EqualValues(t, attrs, subscribers[0].Attributes)
 	})
 
 	t.Run("incorrect e-mail", func(t *testing.T) {
@@ -76,13 +92,180 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 		name := "John Doe"
 		email := "not an e-mail"
 		list_ids := []uint{1, 3}
+		attrs := map[string]interface{}{
+			"age":    30,
+			"gender": "male",
+		}
 
-		id, err := client.CreateSubscriberListIDs(name, email, list_ids)
+		id, err := client.CreateSubscriberListIDs(name, email, list_ids, attrs)
 
 		assert.Error(t, err)
-		assert.Equal(t, (uint)(0), id)
+		assert.Equal(t, uint(0), id)
 	})
 
+}
+
+func TestCreateSubscriberFromJSON(t *testing.T) {
+	client := initAPIClient()
+
+	t.Run("valid JSON input", func(t *testing.T) {
+		jsonData := []byte(`{
+			"name": "Jane Doe",
+			"email": "jane.doe@example.com",
+			"lists": ["TestList"],
+			"attrs": {
+				"age": 28,
+				"preferences": {
+					"newsletter": true,
+					"sms": false
+				}
+			}
+		}`)
+
+		// Create TestList if it doesn't exist
+		listName := "TestList"
+		_, err := client.getListID(listName)
+		if err != nil {
+			_, err := client.createList(listName)
+			assert.NoError(t, err)
+		}
+
+		id, err := client.CreateSubscriberFromJSON(jsonData)
+		assert.NoError(t, err)
+		defer deleteSubscriber(client, id)
+
+		// Fetch the subscriber and verify attributes
+		getSubscriberService := client.Client.NewGetSubscriberService()
+		getSubscriberService.Id(id)
+		subscriber, err := getSubscriberService.Do(context.Background())
+		assert.NoError(t, err)
+
+		var expectedAttrs map[string]interface{}
+		json.Unmarshal([]byte(`{
+			"age": 28,
+			"preferences": {
+				"newsletter": true,
+				"sms": false
+			}
+		}`), &expectedAttrs)
+
+		assert.Equal(t, expectedAttrs, subscriber.Attributes)
+	})
+
+	t.Run("invalid JSON input", func(t *testing.T) {
+		jsonData := []byte(`{
+			"name": "Jane Doe",
+			"email": "jane.doe@example.com",
+			"lists": ["TestList"],
+			"attrs": {
+				"age": 28,
+				"preferences": {
+					"newsletter": true,
+					"sms": false
+				}
+			`)
+
+		id, err := client.CreateSubscriberFromJSON(jsonData)
+		assert.Error(t, err)
+		assert.Equal(t, uint(0), id)
+	})
+}
+
+func TestAddSubscribersFromCSV(t *testing.T) {
+	client := initAPIClient()
+
+	t.Run("valid CSV input", func(t *testing.T) {
+		// Prepare a temporary CSV file
+		csvContent := `Name,Email,List,Attributes
+		John Doe,john.doe@example.com,Newsletter,"{""age"":30,""gender"":""male""}"
+		Jane Doe,jane.doe@example.com,Promotions,"{""age"":28,""interests"":[""tech"",""art""]}"`
+		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
+		assert.NoError(t, err)
+		defer os.Remove(csvFile.Name())
+
+		_, err = csvFile.WriteString(csvContent)
+		assert.NoError(t, err)
+		csvFile.Close()
+
+		// Create lists if they don't exist
+		listNames := []string{"Newsletter", "Promotions"}
+		for _, listName := range listNames {
+			_, err := client.getListID(listName)
+			if err != nil {
+				_, err := client.createList(listName)
+				assert.NoError(t, err)
+			}
+		}
+
+		affectedLists, err := client.AddSubscribersFromCSV(csvFile.Name())
+		assert.NoError(t, err)
+		assert.ElementsMatch(t, listNames, affectedLists)
+
+		// Cleanup subscribers
+		subscriberEmails := []string{"john.doe@example.com", "jane.doe@example.com"}
+		for _, email := range subscriberEmails {
+			id, err := client.getSubscriberID(email)
+			assert.NoError(t, err)
+			deleteSubscriber(client, id)
+		}
+	})
+
+	t.Run("invalid JSON attributes in CSV", func(t *testing.T) {
+		csvContent := `Name,Email,List,Attributes
+John Doe,john.doe@example.com,Newsletter,"{invalid_json}"`
+		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
+		assert.NoError(t, err)
+		defer os.Remove(csvFile.Name())
+
+		_, err = csvFile.WriteString(csvContent)
+		assert.NoError(t, err)
+		csvFile.Close()
+
+		_, err = client.AddSubscribersFromCSV(csvFile.Name())
+		assert.Error(t, err)
+	})
+}
+
+func TestCreateSubscriberWithAttributes(t *testing.T) {
+	client := initAPIClient()
+
+	t.Run("create subscriber with attributes", func(t *testing.T) {
+		name := "Alice"
+		email := fmt.Sprintf("alice+%d@example.com", time.Now().UnixNano())
+		lists := []string{"TestList"}
+		attrs := map[string]interface{}{
+			"subscription_level": "gold",
+			"signup_date":        "2023-10-10",
+		}
+
+		// Create TestList if it doesn't exist
+		listName := "TestList"
+		_, err := client.getListID(listName)
+		if err != nil {
+			_, err = client.createList(listName)
+			require.NoError(t, err)
+		}
+
+		// Ensure no existing subscriber with the same email
+		existingID, _ := client.getSubscriberID(email)
+		if existingID != 0 {
+			_ = client.DeleteSubscriberID(existingID)
+		}
+
+		id, err := client.CreateSubscriber(name, email, lists, attrs)
+		require.NoError(t, err)
+		defer func() {
+			err := client.DeleteSubscriberID(id)
+			require.NoError(t, err)
+		}()
+
+		// Fetch the subscriber and verify attributes
+		getSubscriberService := client.Client.NewGetSubscriberService()
+		getSubscriberService.Id(id)
+		subscriber, err := getSubscriberService.Do(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, attrs, subscriber.Attributes)
+	})
 }
 
 func TestCreateCampaignHTML(t *testing.T) {
@@ -100,7 +283,13 @@ func TestCreateCampaignHTML(t *testing.T) {
 
 		name := "My campaign"
 		subject := "Subject of campaign"
-		lists := []uint{1}
+		// Create a test list
+		listName := "TestList"
+		list, err := client.createList(listName)
+		assert.NoError(t, err)
+		defer deleteList(client, list.Id)
+
+		lists := []uint{list.Id}
 
 		id, err := client.CreateCampaignHTML(name, subject, lists, htmlString)
 
@@ -136,7 +325,13 @@ func TestDeleteCampaign(t *testing.T) {
 		name := "My campaign"
 		subject := "Subject of campaign"
 		body := "Body"
-		lists := []uint{1}
+		// Create a test list
+		listName := "TestList"
+		list, err := client.createList(listName)
+		assert.NoError(t, err)
+		defer deleteList(client, list.Id)
+
+		lists := []uint{list.Id}
 		createCampaignService := client.Client.NewCreateCampaignService()
 		createCampaignService.Name(name)
 		createCampaignService.Subject(subject)
@@ -173,7 +368,9 @@ func TestAddSubscribersToList(t *testing.T) {
 		createListService.Name("tmp")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list ID in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -207,18 +404,18 @@ func TestAddSubscribersToList(t *testing.T) {
 	})
 
 	t.Run("no such user", func(t *testing.T) {
-		// Set up test - create subscribers and list
+		// Set up test - create list
 		createListService := client.Client.NewCreateListService()
 		createListService.Name("tmp")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		// This subscriber does not exist
 		subscribers := []*listmonk.Subscriber{
 			{
-				Id: 35,
+				Id: 999999, // Assuming this ID doesn't exist
 			},
 		}
 
@@ -232,23 +429,31 @@ func TestCreateIncCampaign(t *testing.T) {
 
 	t.Run("correct input data", func(t *testing.T) {
 		// Set up test - create base campaign and temp list
+		// Create a test list
+		listName := "TestList"
+		list, err := client.createList(listName)
+		assert.NoError(t, err)
+		defer deleteList(client, list.Id)
+
 		createCampaignService := client.Client.NewCreateCampaignService()
 		createCampaignService.Name("Base campaign")
 		createCampaignService.Subject("Subject")
 		createCampaignService.Body("Campaign body")
-		createCampaignService.Lists([]uint{1})
+		createCampaignService.Lists([]uint{list.Id})
 		baseCampaign, err := createCampaignService.Do(context.Background())
 		check(err)
 		defer deleteCampaign(client, baseCampaign.Id)
 
 		createListService := client.Client.NewCreateListService()
 		createListService.Name("tmp")
-		list, err := createListService.Do(context.Background())
+		tempList, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
-		defer deleteList(client, list.Id)
 
-		incCampaign, err := client.createIncCampaign(baseCampaign, list)
+		// Store list in sync.Map
+		client.MailingListIDs.Store(tempList.Name, tempList.Id)
+		defer deleteList(client, tempList.Id)
+
+		incCampaign, err := client.createIncCampaign(baseCampaign, tempList)
 
 		assert.NoError(t, err)
 		assert.Equal(t, baseCampaign.Name+"_inc", incCampaign.Name)
@@ -259,7 +464,7 @@ func TestCreateIncCampaign(t *testing.T) {
 		for index, l := range incCampaign.Lists {
 			listIDs[index] = l.Id
 		}
-		assert.Equal(t, []uint{list.Id}, listIDs)
+		assert.Equal(t, []uint{tempList.Id}, listIDs)
 	})
 }
 
@@ -272,7 +477,9 @@ func TestLaunchCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 4)
@@ -349,26 +556,28 @@ func TestLaunchCampaign(t *testing.T) {
 	t.Run("resume no new subscribers", func(t *testing.T) {
 		// Set up test - create and launch campaign with subscribers
 		createListService := client.Client.NewCreateListService()
-		createListService.Name("testlist")
+		createListService.Name("testlist_no_new")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
-		subscribers := make([]*listmonk.Subscriber, 2)
-		for i := 0; i < cap(subscribers); i++ {
+		// Create subscribers and add them to the list
+		for i := 0; i < 2; i++ {
 			createSubscriberService := client.Client.NewCreateSubscriberService()
-			createSubscriberService.Name(fmt.Sprintf("User %d", i))
-			createSubscriberService.Email(fmt.Sprintf("test%d@example.com", i))
+			createSubscriberService.Name(fmt.Sprintf("User_no_new %d", i))
+			createSubscriberService.Email(fmt.Sprintf("test_no_new%d@example.com", i))
 			createSubscriberService.Status("enabled")
+			createSubscriberService.ListIds([]uint{list.Id})
 			sub, err := createSubscriberService.Do(context.Background())
 			check(err)
-			subscribers[i] = sub
 			defer deleteSubscriber(client, sub.Id)
 		}
 
 		createCampaignService := client.Client.NewCreateCampaignService()
-		createCampaignService.Name("Base campaign")
+		createCampaignService.Name("Base campaign no new")
 		createCampaignService.Subject("Subject")
 		createCampaignService.Body("Campaign body")
 		createCampaignService.Lists([]uint{list.Id})
@@ -382,7 +591,10 @@ func TestLaunchCampaign(t *testing.T) {
 		_, err = updateCampaignStatusService.Do(context.Background())
 		check(err)
 
+		// Wait for the campaign to finish
 		time.Sleep(5 * time.Second)
+
+		// No new subscribers added
 
 		resumed, err := client.LaunchCampaign(baseCampaign.Id)
 
@@ -391,7 +603,7 @@ func TestLaunchCampaign(t *testing.T) {
 	})
 
 	t.Run("no such campaign", func(t *testing.T) {
-		resumed, err := client.LaunchCampaign(130)
+		resumed, err := client.LaunchCampaign(999999) // Assuming this ID doesn't exist
 
 		assert.Error(t, err)
 		assert.False(t, resumed)
@@ -400,26 +612,28 @@ func TestLaunchCampaign(t *testing.T) {
 	t.Run("first launch correct", func(t *testing.T) {
 		// Set up test - create campaign with subscribers
 		createListService := client.Client.NewCreateListService()
-		createListService.Name("testlist")
+		createListService.Name("testlist_first_launch")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
-		subscribers := make([]*listmonk.Subscriber, 2)
-		for i := 0; i < cap(subscribers); i++ {
+		// Create subscribers and add them to the list
+		for i := 0; i < 2; i++ {
 			createSubscriberService := client.Client.NewCreateSubscriberService()
-			createSubscriberService.Name(fmt.Sprintf("User %d", i))
-			createSubscriberService.Email(fmt.Sprintf("test%d@example.com", i))
+			createSubscriberService.Name(fmt.Sprintf("User_first_launch %d", i))
+			createSubscriberService.Email(fmt.Sprintf("test_first_launch%d@example.com", i))
 			createSubscriberService.Status("enabled")
+			createSubscriberService.ListIds([]uint{list.Id})
 			sub, err := createSubscriberService.Do(context.Background())
 			check(err)
-			subscribers[i] = sub
 			defer deleteSubscriber(client, sub.Id)
 		}
 
 		createCampaignService := client.Client.NewCreateCampaignService()
-		createCampaignService.Name("Base campaign")
+		createCampaignService.Name("Base campaign first launch")
 		createCampaignService.Subject("Subject")
 		createCampaignService.Body("Campaign body")
 		createCampaignService.Lists([]uint{list.Id})
@@ -449,7 +663,6 @@ func TestLaunchCampaign(t *testing.T) {
 		assert.NotNil(t, campaign)
 		assert.True(t, campaign.Status == "running" || campaign.Status == "finished")
 		assert.Equal(t, baseCampaign.Body, campaign.Body)
-
 	})
 }
 
@@ -473,7 +686,7 @@ func TestDeleteSubscriberID(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		// Check if the subscruber was deleted
+		// Check if the subscriber was deleted
 		getSubscribersService := client.Client.NewGetSubscribersService()
 		updatedSubscribers, err := getSubscribersService.Do(context.Background())
 
@@ -505,7 +718,7 @@ func TestDeleteSubscriberEmail(t *testing.T) {
 		assert.NoError(t, err)
 
 		// If failed - delete subscriber manually to clean up
-		if err != nil {
+		if err == nil {
 			deleteSubscriber(client, sub.Id)
 		}
 	})
@@ -527,8 +740,11 @@ func TestCreateCampaignHTMLOnListName(t *testing.T) {
 		createListService.Name(listName)
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list ID in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
+
 		htmlString := ` <!DOCTYPE html>
 <html>
 <body>
@@ -577,7 +793,9 @@ func TestRemoveFromList(t *testing.T) {
 			createListService.Name(fmt.Sprintf("list%d", i))
 			list, err := createListService.Do(context.Background())
 			check(err)
-			client.MailingListIDs[list.Name] = list.Id
+
+			// Store the list in sync.Map
+			client.MailingListIDs.Store(list.Name, list.Id)
 			listIDs[i] = list.Id
 			defer deleteList(client, list.Id)
 		}
@@ -616,7 +834,9 @@ func TestAddToList(t *testing.T) {
 		createListService.Name("list")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		email := "user@test.com"
@@ -653,7 +873,9 @@ func TestAddAndSendCampaign(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		createCampaignService := client.Client.NewCreateCampaignService()
@@ -707,7 +929,9 @@ func TestLaunchCampaignListName(t *testing.T) {
 		createListService.Name("testlist")
 		list, err := createListService.Do(context.Background())
 		check(err)
-		client.MailingListIDs[list.Name] = list.Id
+
+		// Store the list in sync.Map
+		client.MailingListIDs.Store(list.Name, list.Id)
 		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
@@ -758,5 +982,166 @@ func TestLaunchCampaignListName(t *testing.T) {
 	t.Run("no such list", func(t *testing.T) {
 		launched, _ := client.LaunchCampaignListName("no such list")
 		assert.False(t, launched)
+	})
+}
+
+func TestMailingListIDsConcurrency(t *testing.T) {
+	client := initAPIClient()
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+
+	// Generate unique list names
+	listNames := make([]string, numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		listNames[i] = fmt.Sprintf("concurrent-test-list-%d", i)
+	}
+
+	createAndGetListID := func(listName string) {
+		defer wg.Done()
+
+		// Create list
+		list, err := client.createList(listName)
+		if err != nil {
+			t.Errorf("Error creating list %s: %v", listName, err)
+			return
+		}
+		defer deleteList(client, list.Id)
+
+		// Get list ID
+		id, err := client.getListID(listName)
+		if err != nil {
+			t.Errorf("Error getting list ID for %s: %v", listName, err)
+			return
+		}
+
+		if id != list.Id {
+			t.Errorf("List ID mismatch for %s: expected %d, got %d", listName, list.Id, id)
+		}
+
+		// Simulate concurrent reads and writes
+		for j := 0; j < 5; j++ {
+			go func(j int) {
+				// Concurrently get list ID
+				concurrentID, err := client.getListID(listName)
+				if err != nil {
+					t.Errorf("Goroutine %d: Error getting list ID for %s: %v", j, listName, err)
+				} else if concurrentID != list.Id {
+					t.Errorf("Goroutine %d: List ID mismatch for %s: expected %d, got %d", j, listName, list.Id, concurrentID)
+				}
+			}(j)
+		}
+	}
+
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go createAndGetListID(listNames[i])
+	}
+
+	wg.Wait()
+}
+
+func TestSubscriberAttributes(t *testing.T) {
+	client := initAPIClient()
+
+	t.Run("Update subscriber's attributes", func(t *testing.T) {
+		// First, create a subscriber
+		name := "Test User Update"
+		email := fmt.Sprintf("testuserupdate+%d@example.com", time.Now().UnixNano())
+		lists := []string{"TestList"}
+
+		// Create TestList if it doesn't exist
+		listName := "TestList"
+		_, err := client.getListID(listName)
+		if err != nil {
+			_, err = client.createList(listName)
+			require.NoError(t, err)
+		}
+
+		attrs := map[string]interface{}{
+			"expiration_date":        "2023-12-31",
+			"key_creation_timestamp": time.Now().Format(time.RFC3339),
+			"key":                    "initial-key-value",
+		}
+
+		id, err := client.CreateSubscriber(name, email, lists, attrs)
+		require.NoError(t, err)
+		defer func() {
+			err := client.DeleteSubscriberID(id)
+			require.NoError(t, err)
+		}()
+
+		// Update the subscriber's attributes
+		updatedAttrs := map[string]interface{}{
+			"expiration_date":          "2024-12-31",
+			"key_creation_timestamp":   "2023-11-01T10:00:00Z",
+			"key":                      "updated-key-value",
+			"new_custom_field":         "new field value",
+			"additional_field_example": "updated value",
+		}
+
+		err = client.UpdateSubscriberAttributes(id, updatedAttrs)
+		require.NoError(t, err)
+
+		// Fetch the subscriber and verify updated attributes
+		fetchedAttrs, err := client.GetSubscriberAttributes(id)
+		require.NoError(t, err)
+
+		// Convert any float64 to int if necessary for comparison
+		for k, v := range fetchedAttrs {
+			switch val := v.(type) {
+			case float64:
+				if val == float64(int(val)) {
+					fetchedAttrs[k] = int(val)
+				}
+			}
+		}
+
+		assert.Equal(t, updatedAttrs["expiration_date"], fetchedAttrs["expiration_date"])
+		assert.Equal(t, updatedAttrs["key"], fetchedAttrs["key"])
+		assert.Equal(t, updatedAttrs["new_custom_field"], fetchedAttrs["new_custom_field"])
+		assert.Equal(t, updatedAttrs["additional_field_example"], fetchedAttrs["additional_field_example"])
+	})
+
+	t.Run("Set specific attribute", func(t *testing.T) {
+		// First, create a subscriber
+		name := "Test User Set Attribute"
+		email := fmt.Sprintf("testusersetattr+%d@example.com", time.Now().UnixNano())
+		lists := []string{"TestList"}
+
+		// Create TestList if it doesn't exist
+		listName := "TestList"
+		_, err := client.getListID(listName)
+		if err != nil {
+			_, err = client.createList(listName)
+			require.NoError(t, err)
+		}
+
+		attrs := map[string]interface{}{
+			"key": "initial-key-value",
+		}
+
+		id, err := client.CreateSubscriber(name, email, lists, attrs)
+		require.NoError(t, err)
+		defer func() {
+			err := client.DeleteSubscriberID(id)
+			require.NoError(t, err)
+		}()
+
+		// Retrieve current attributes
+		fetchedAttrs, err := client.GetSubscriberAttributes(id)
+		require.NoError(t, err)
+
+		// Modify the 'key' attribute
+		fetchedAttrs["key"] = "updated-key-value"
+
+		// Update the subscriber's attributes
+		err = client.UpdateSubscriberAttributes(id, fetchedAttrs)
+		require.NoError(t, err)
+
+		// Fetch the subscriber and verify the updated 'key' attribute
+		updatedAttrs, err := client.GetSubscriberAttributes(id)
+		require.NoError(t, err)
+		assert.Equal(t, "updated-key-value", updatedAttrs["key"])
 	})
 }

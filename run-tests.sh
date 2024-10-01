@@ -13,5 +13,6 @@ cd api
 sleep 5
 
 go test "$@"
+go test -race -run TestMailingListIDsConcurrency
 
 docker stop $started_containers > /dev/null
