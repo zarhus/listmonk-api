@@ -12,7 +12,7 @@ go get github.com/zarhus/listmonk-api
 
 ```go
 import (
-    git.3mdeb.com/3mdeb/listmonk-api/api
+    listmonk "github.com/zarhus/listmonk-api/api"
 )
 ```
 
