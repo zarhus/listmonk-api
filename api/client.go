@@ -421,10 +421,15 @@ func (c *APIClient) CreateCampaignHTMLOnListName(campaignName string, subject st
 // Modify subscriber list memberships.
 func (c *APIClient) updateSubscriberLists(email string, listNames []string, action string) error {
 	subscriberID, err := c.getSubscriberID(email)
-
+  
 	if err != nil {
 		return err
 	}
+
+  subscriber, err := c.GetSubscriber(subscriberID)
+  if len(subscriber.Lists) == 1 && action == "remove" {
+    return c.DeleteSubscriberID(subscriberID)
+  }
 
 	listIDs := make([]uint, len(listNames))
 	for i, listName := range listNames {
@@ -443,7 +448,7 @@ func (c *APIClient) updateSubscriberLists(email string, listNames []string, acti
 	return err
 }
 
-// Remove subscriber from a list
+// Remove subscriber from a list. Deletes subscriber if removed from all lists.
 func (c *APIClient) RemoveFromList(email string, listName string) error {
 	return c.updateSubscriberLists(email, []string{listName}, "remove")
 }
