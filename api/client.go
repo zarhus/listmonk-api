@@ -533,6 +533,14 @@ func (c *APIClient) GetSubscriberAttributes(subscriberID uint) (map[string]inter
 	return subscriber.Attributes, nil
 }
 
+func (c* APIClient) GetSubscriberAttributesEmail(email string) (map[string]interface{}, error) {
+  subscriberID, err := c.getSubscriberID(email)
+  if err != nil {
+    return nil, err
+  }
+  return c.GetSubscriberAttributes(subscriberID)
+}
+
 // UpdateSubscriberAttributes updates a subscriber's attributes
 func (c *APIClient) UpdateSubscriberAttributes(subscriberID uint, attrs map[string]interface{}) error {
 	// Get the current subscriber details
@@ -554,4 +562,22 @@ func (c *APIClient) UpdateSubscriberAttributes(subscriberID uint, attrs map[stri
 	fmt.Println("Updating subscriber attributes")
 	_, err = service.Do(context.Background())
 	return err
+}
+
+func (c *APIClient) UpdateSubscriberAttributesEmail(email string, attrs map[string]interface{}) error {
+  subscriberID, err := c.getSubscriberID(email)
+  if err != nil {
+    return err
+  }
+  return c.UpdateSubscriberAttributes(subscriberID, attrs)
+}
+
+// Set a single attribute for subscriber
+func (c *APIClient) SetAttribute(email, key, value string) error {
+  attrs, err := c.GetSubscriberAttributesEmail(email)
+  if err != nil {
+    return err
+  }
+  attrs[key] = value
+  return c.UpdateSubscriberAttributesEmail(email, attrs)
 }
