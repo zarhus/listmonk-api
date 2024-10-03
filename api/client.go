@@ -580,3 +580,33 @@ func (c *APIClient) SetAttribute(email, key, value string) error {
 	attrs[key] = value
 	return c.UpdateSubscriberAttributesEmail(email, attrs)
 }
+
+func (c *APIClient) ListSubscribers(listName string) ([]map[string]string, error) {
+  var result []map[string]string
+  listID, err := c.getListID(listName)
+  getSubscribersService := c.Client.NewGetSubscribersService()
+  subscribers, err := getSubscribersService.Do(context.Background())
+  if err != nil {
+    return nil, err
+  }
+
+  key := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
+  for _, subscriber := range subscribers {
+    for _, list := range subscriber.Lists {
+      if list.Id == listID {
+        expirationString, ok := subscriber.Attributes[key].(string)
+        if !ok {
+          return nil, fmt.Errorf("expiration_date is not a string")
+        }
+
+        result = append(result, map[string]string{
+          "id": strconv.Itoa(int(subscriber.Id)),
+          "email": subscriber.Email,
+          "expiration_date": expirationString,
+        })
+        break
+      }
+    }
+  }
+  return result, nil
+}

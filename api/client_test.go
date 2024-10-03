@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1144,4 +1146,51 @@ func TestSubscriberAttributes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "updated-key-value", updatedAttrs["key"])
 	})
+}
+
+func TestListSubscribers(t *testing.T) {
+client := initAPIClient()
+
+	t.Run("Correct data", func(t *testing.T) {
+    listName := "sometestlist"
+    // Create list and subscribers
+		list, err := client.createList(listName)
+    check(err)
+    defer deleteList(client, list.Id) 
+
+		subscribers := make([]*listmonk.Subscriber, 2)
+    expriationKey := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
+
+		for i := 0; i < cap(subscribers); i++ {
+		attrs := map[string]interface{}{
+			expriationKey: "2025-09-07",
+      "key": "some_key",
+		}
+			createSubscriberService := client.Client.NewCreateSubscriberService()
+			createSubscriberService.Name(fmt.Sprintf("User %d", i))
+			createSubscriberService.Email(fmt.Sprintf("test%d@example.com", i))
+			createSubscriberService.Status("enabled")
+      createSubscriberService.ListIds([]uint{list.Id})
+      createSubscriberService.Attributes(attrs)
+			sub, err := createSubscriberService.Do(context.Background())
+			check(err)
+			subscribers[i] = sub
+			defer deleteSubscriber(client, sub.Id)
+		}
+
+    result, err := client.ListSubscribers(listName)
+
+    if assert.NoError(t, err) {
+      assert.Contains(t, result, map[string]string{
+          "id": strconv.Itoa(int(subscribers[0].Id)),
+          "email": "test0@example.com",
+          "expiration_date":  "2025-09-07",
+        })
+      assert.Contains(t, result, map[string]string{
+          "id": strconv.Itoa(int(subscribers[1].Id)),
+          "email": "test1@example.com",
+          "expiration_date":  "2025-09-07",
+        })
+    }
+  })
 }
