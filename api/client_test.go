@@ -176,9 +176,9 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 
 	t.Run("valid CSV input", func(t *testing.T) {
 		// Prepare a temporary CSV file
-		csvContent := `Name,Email,List,Attributes
-		John Doe,john.doe@example.com,Newsletter,"{""age"":30,""gender"":""male""}"
-		Jane Doe,jane.doe@example.com,Promotions,"{""age"":28,""interests"":[""tech"",""art""]}"`
+		csvContent := `Email,List,Attributes
+		john.doe@example.com,Newsletter,"{""age"":30,""gender"":""male""}"
+		jane.doe@example.com,Promotions,"{""age"":28,""interests"":[""tech"",""art""]}"`
 		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
 		assert.NoError(t, err)
 		defer os.Remove(csvFile.Name())
@@ -212,7 +212,7 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 
 	t.Run("invalid JSON attributes in CSV", func(t *testing.T) {
 		csvContent := `Name,Email,List,Attributes
-John Doe,john.doe@example.com,Newsletter,"{invalid_json}"`
+john.doe@example.com,Newsletter,"{invalid_json}"`
 		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
 		assert.NoError(t, err)
 		defer os.Remove(csvFile.Name())

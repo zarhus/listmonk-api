@@ -348,7 +348,7 @@ func (c *APIClient) DeleteSubscriberEmail(email string) error {
 }
 
 // Add subscribers from CSV file. Return names of lists that were affected.
-// Assumes CSV has columns: Name, Email, List, Attributes (JSON)
+// Assumes CSV has columns: Email, List, Attributes (JSON)
 func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -373,14 +373,13 @@ func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
 	listNames := make(map[string]bool)
 
 	for _, record := range records {
-		if len(record) < 4 {
+		if len(record) < 3 {
 			return nil, fmt.Errorf("invalid record: %v", record)
 		}
 
-		name := record[0]
-		email := record[1]
-		list := record[2]
-		attrsJSON := record[3]
+		email := record[0]
+		list := record[1]
+		attrsJSON := record[2]
 
 		var attrs map[string]interface{}
 		if err := json.Unmarshal([]byte(attrsJSON), &attrs); err != nil {
@@ -388,7 +387,7 @@ func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
 		}
 
 		listNames[list] = true
-		_, err = c.CreateSubscriber(name, email, []string{list}, attrs)
+		_, err = c.CreateSubscriber(email, email, []string{list}, attrs)
 		if err != nil {
 			return nil, err
 		}
@@ -421,15 +420,15 @@ func (c *APIClient) CreateCampaignHTMLOnListName(campaignName string, subject st
 // Modify subscriber list memberships.
 func (c *APIClient) updateSubscriberLists(email string, listNames []string, action string) error {
 	subscriberID, err := c.getSubscriberID(email)
-  
+
 	if err != nil {
 		return err
 	}
 
-  subscriber, err := c.GetSubscriber(subscriberID)
-  if len(subscriber.Lists) == 1 && action == "remove" {
-    return c.DeleteSubscriberID(subscriberID)
-  }
+	subscriber, err := c.GetSubscriber(subscriberID)
+	if len(subscriber.Lists) == 1 && action == "remove" {
+		return c.DeleteSubscriberID(subscriberID)
+	}
 
 	listIDs := make([]uint, len(listNames))
 	for i, listName := range listNames {
@@ -533,12 +532,12 @@ func (c *APIClient) GetSubscriberAttributes(subscriberID uint) (map[string]inter
 	return subscriber.Attributes, nil
 }
 
-func (c* APIClient) GetSubscriberAttributesEmail(email string) (map[string]interface{}, error) {
-  subscriberID, err := c.getSubscriberID(email)
-  if err != nil {
-    return nil, err
-  }
-  return c.GetSubscriberAttributes(subscriberID)
+func (c *APIClient) GetSubscriberAttributesEmail(email string) (map[string]interface{}, error) {
+	subscriberID, err := c.getSubscriberID(email)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetSubscriberAttributes(subscriberID)
 }
 
 // UpdateSubscriberAttributes updates a subscriber's attributes
@@ -565,19 +564,19 @@ func (c *APIClient) UpdateSubscriberAttributes(subscriberID uint, attrs map[stri
 }
 
 func (c *APIClient) UpdateSubscriberAttributesEmail(email string, attrs map[string]interface{}) error {
-  subscriberID, err := c.getSubscriberID(email)
-  if err != nil {
-    return err
-  }
-  return c.UpdateSubscriberAttributes(subscriberID, attrs)
+	subscriberID, err := c.getSubscriberID(email)
+	if err != nil {
+		return err
+	}
+	return c.UpdateSubscriberAttributes(subscriberID, attrs)
 }
 
 // Set a single attribute for subscriber
 func (c *APIClient) SetAttribute(email, key, value string) error {
-  attrs, err := c.GetSubscriberAttributesEmail(email)
-  if err != nil {
-    return err
-  }
-  attrs[key] = value
-  return c.UpdateSubscriberAttributesEmail(email, attrs)
+	attrs, err := c.GetSubscriberAttributesEmail(email)
+	if err != nil {
+		return err
+	}
+	attrs[key] = value
+	return c.UpdateSubscriberAttributesEmail(email, attrs)
 }
