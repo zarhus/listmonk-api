@@ -347,57 +347,61 @@ func (c *APIClient) DeleteSubscriberEmail(email string) error {
 	return c.DeleteSubscriberID(subscriberID)
 }
 
-// Add subscribers from CSV file. Return names of lists that were affected.
-// Assumes CSV has columns: Email, List, Attributes (JSON)
-func (c *APIClient) AddSubscribersFromCSV(path string) ([]string, error) {
+// Add subscribers from CSV file.
+// Assumes CSV has columns: Duration (years), Email, Date received, Expiration date
+func (c *APIClient) AddSubscribersFromCSV(path, list string, passwords map[string]string) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(records) < 1 {
-		return nil, fmt.Errorf("no records found")
+		return fmt.Errorf("no records found")
 	}
 
 	// Skip the header row
 	records = records[1:]
 
-	// Set-like structure to keep names of lists to which subscribers were added
-	listNames := make(map[string]bool)
-
 	for _, record := range records {
-		if len(record) < 3 {
-			return nil, fmt.Errorf("invalid record: %v", record)
+		if len(record) < 4 {
+			return fmt.Errorf("invalid record length: %v", record)
 		}
 
-		email := record[0]
-		list := record[1]
-		attrsJSON := record[2]
-
-		var attrs map[string]interface{}
-		if err := json.Unmarshal([]byte(attrsJSON), &attrs); err != nil {
-			return nil, fmt.Errorf("invalid JSON in attributes column: %v", err)
+		duration := record[0]
+		email := record[1]
+		received := record[2]
+		expiration := record[3]
+		attrs := map[string]interface{}{
+			"key": passwords[email],
+			fmt.Sprintf("duration_%s", strings.ToLower(list)):        duration,
+			fmt.Sprintf("created_%s", strings.ToLower(list)):         received,
+			fmt.Sprintf("expiration_date_%s", strings.ToLower(list)): expiration,
 		}
 
-		listNames[list] = true
-		_, err = c.CreateSubscriber(email, email, []string{list}, attrs)
+		// If subscriber does not already exists
+		if _, err := c.getSubscriberID(email); err != nil {
+			_, err = c.CreateSubscriber(email, email, []string{list}, attrs)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		err := c.AddToList(email, list)
 		if err != nil {
-			return nil, err
+			return err
 		}
+		c.SetAttribute(email, fmt.Sprintf("duration_%s", strings.ToLower(list)), duration)
+		c.SetAttribute(email, fmt.Sprintf("created_%s", strings.ToLower(list)), received)
+		c.SetAttribute(email, fmt.Sprintf("expiration_date_%s", strings.ToLower(list)), expiration)
 	}
-
-	listNamesSlice := make([]string, 0, len(listNames))
-	for name := range listNames {
-		listNamesSlice = append(listNamesSlice, name)
-	}
-	return listNamesSlice, nil
+	return nil
 }
 
 // Create campaign from HTML on a list given by name.
@@ -489,27 +493,13 @@ func (c *APIClient) AddAndSendCampaign(email string, listName string) (bool, err
 
 // Add subscribers from CSV and launch campaigns of affected lists. Return true
 // if all campaigns were launched successfully
-func (c *APIClient) AddCSVAndSendCampaign(path string) (bool, error) {
-	lists, err := c.AddSubscribersFromCSV(path)
-
+func (c *APIClient) AddCSVAndSendCampaign(path, list string, passwords map[string]string) (bool, error) {
+	err := c.AddSubscribersFromCSV(path, list, passwords)
 	if err != nil {
 		return false, err
 	}
 
-	allSucceeded := true
-	for _, list := range lists {
-		resumed, err := c.LaunchCampaignListName(list)
-
-		if err != nil {
-			return false, err
-		}
-
-		if !resumed {
-			allSucceeded = false
-		}
-	}
-
-	return allSucceeded, nil
+	return c.LaunchCampaignListName(list)
 }
 
 // GetSubscriber retrieves a subscriber by ID
@@ -582,31 +572,31 @@ func (c *APIClient) SetAttribute(email, key, value string) error {
 }
 
 func (c *APIClient) ListSubscribers(listName string) ([]map[string]string, error) {
-  var result []map[string]string
-  listID, err := c.getListID(listName)
-  getSubscribersService := c.Client.NewGetSubscribersService()
-  subscribers, err := getSubscribersService.Do(context.Background())
-  if err != nil {
-    return nil, err
-  }
+	var result []map[string]string
+	listID, err := c.getListID(listName)
+	getSubscribersService := c.Client.NewGetSubscribersService()
+	subscribers, err := getSubscribersService.Do(context.Background())
+	if err != nil {
+		return nil, err
+	}
 
-  key := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
-  for _, subscriber := range subscribers {
-    for _, list := range subscriber.Lists {
-      if list.Id == listID {
-        expirationString, ok := subscriber.Attributes[key].(string)
-        if !ok {
-          return nil, fmt.Errorf("expiration_date is not a string")
-        }
+	key := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
+	for _, subscriber := range subscribers {
+		for _, list := range subscriber.Lists {
+			if list.Id == listID {
+				expirationString, ok := subscriber.Attributes[key].(string)
+				if !ok {
+					return nil, fmt.Errorf("expiration_date is not a string")
+				}
 
-        result = append(result, map[string]string{
-          "id": strconv.Itoa(int(subscriber.Id)),
-          "email": subscriber.Email,
-          "expiration_date": expirationString,
-        })
-        break
-      }
-    }
-  }
-  return result, nil
+				result = append(result, map[string]string{
+					"id":              strconv.Itoa(int(subscriber.Id)),
+					"email":           subscriber.Email,
+					"expiration_date": expirationString,
+				})
+				break
+			}
+		}
+	}
+	return result, nil
 }

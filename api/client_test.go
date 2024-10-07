@@ -177,10 +177,15 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 	client := initAPIClient()
 
 	t.Run("valid CSV input", func(t *testing.T) {
+    listName := "MSI"
+		list, err := client.createList(listName)
+		assert.NoError(t, err)
+		defer deleteList(client, list.Id)
 		// Prepare a temporary CSV file
-		csvContent := `Email,List,Attributes
-		john.doe@example.com,Newsletter,"{""age"":30,""gender"":""male""}"
-		jane.doe@example.com,Promotions,"{""age"":28,""interests"":[""tech"",""art""]}"`
+		csvContent := `duration,email,date_received,expiration
+1,test1@example.com,2024-09-07,2025-09-07
+2,test2@example.com,2024-05-12,2026-05-12
+1,test3@example.com,2024-07-01,2025-07-01`
 		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
 		assert.NoError(t, err)
 		defer os.Remove(csvFile.Name())
@@ -189,42 +194,21 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 		assert.NoError(t, err)
 		csvFile.Close()
 
-		// Create lists if they don't exist
-		listNames := []string{"Newsletter", "Promotions"}
-		for _, listName := range listNames {
-			_, err := client.getListID(listName)
-			if err != nil {
-				_, err := client.createList(listName)
-				assert.NoError(t, err)
-			}
-		}
-
-		affectedLists, err := client.AddSubscribersFromCSV(csvFile.Name())
+    passwords := map[string]string{
+      "test1@example.com": "password1",
+      "test2@example.com": "password2",
+      "test3@example.com": "password3",
+    }
+		err = client.AddSubscribersFromCSV(csvFile.Name(), listName, passwords)
 		assert.NoError(t, err)
-		assert.ElementsMatch(t, listNames, affectedLists)
 
 		// Cleanup subscribers
-		subscriberEmails := []string{"john.doe@example.com", "jane.doe@example.com"}
+		subscriberEmails := []string{"test1@example.com", "test2@example.com", "test3@example.com"}
 		for _, email := range subscriberEmails {
 			id, err := client.getSubscriberID(email)
 			assert.NoError(t, err)
 			deleteSubscriber(client, id)
 		}
-	})
-
-	t.Run("invalid JSON attributes in CSV", func(t *testing.T) {
-		csvContent := `Name,Email,List,Attributes
-john.doe@example.com,Newsletter,"{invalid_json}"`
-		csvFile, err := os.CreateTemp("", "subscribers_*.csv")
-		assert.NoError(t, err)
-		defer os.Remove(csvFile.Name())
-
-		_, err = csvFile.WriteString(csvContent)
-		assert.NoError(t, err)
-		csvFile.Close()
-
-		_, err = client.AddSubscribersFromCSV(csvFile.Name())
-		assert.Error(t, err)
 	})
 }
 
