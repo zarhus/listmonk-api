@@ -90,7 +90,6 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 	})
 
 	t.Run("incorrect e-mail", func(t *testing.T) {
-
 		name := "John Doe"
 		email := "not an e-mail"
 		list_ids := []uint{1, 3}
@@ -104,7 +103,6 @@ func TestCreateSubscriberListIDs(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, uint(0), id)
 	})
-
 }
 
 func TestCreateSubscriberFromJSON(t *testing.T) {
@@ -177,7 +175,7 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 	client := initAPIClient()
 
 	t.Run("valid CSV input", func(t *testing.T) {
-    listName := "MSI"
+		listName := "MSI"
 		list, err := client.createList(listName)
 		assert.NoError(t, err)
 		defer deleteList(client, list.Id)
@@ -194,11 +192,11 @@ func TestAddSubscribersFromCSV(t *testing.T) {
 		assert.NoError(t, err)
 		csvFile.Close()
 
-    passwords := map[string]string{
-      "test1@example.com": "password1",
-      "test2@example.com": "password2",
-      "test3@example.com": "password3",
-    }
+		passwords := map[string]string{
+			"test1@example.com": "password1",
+			"test2@example.com": "password2",
+			"test3@example.com": "password3",
+		}
 		err = client.AddSubscribersFromCSV(csvFile.Name(), listName, passwords)
 		assert.NoError(t, err)
 
@@ -375,7 +373,7 @@ func TestAddSubscribersToList(t *testing.T) {
 		err = client.addSubscribersToList(subscribers, list)
 		assert.NoError(t, err)
 
-		//Check if subscribers were added
+		// Check if subscribers were added
 		for _, subscriber := range subscribers {
 			getSubscriberService := client.Client.NewGetSubscriberService()
 			getSubscriberService.Id(subscriber.Id)
@@ -386,7 +384,6 @@ func TestAddSubscribersToList(t *testing.T) {
 			}
 			assert.Containsf(t, listIDs, list.Id, "Subscriber %s is not subscribed to list", updatedSubscriber.Name)
 		}
-
 	})
 
 	t.Run("no such user", func(t *testing.T) {
@@ -1133,48 +1130,143 @@ func TestSubscriberAttributes(t *testing.T) {
 }
 
 func TestListSubscribers(t *testing.T) {
-client := initAPIClient()
+	client := initAPIClient()
 
 	t.Run("Correct data", func(t *testing.T) {
-    listName := "sometestlist"
-    // Create list and subscribers
+		listName := "sometestlist"
+		// Create list and subscribers
 		list, err := client.createList(listName)
-    check(err)
-    defer deleteList(client, list.Id) 
+		check(err)
+		defer deleteList(client, list.Id)
 
 		subscribers := make([]*listmonk.Subscriber, 2)
-    expriationKey := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
+		expriationKey := fmt.Sprintf("expiration_date_%s", strings.ToLower(listName))
 
 		for i := 0; i < cap(subscribers); i++ {
-		attrs := map[string]interface{}{
-			expriationKey: "2025-09-07",
-      "key": "some_key",
-		}
+			attrs := map[string]interface{}{
+				expriationKey: "2025-09-07",
+				"key":         "some_key",
+			}
 			createSubscriberService := client.Client.NewCreateSubscriberService()
 			createSubscriberService.Name(fmt.Sprintf("User %d", i))
 			createSubscriberService.Email(fmt.Sprintf("test%d@example.com", i))
 			createSubscriberService.Status("enabled")
-      createSubscriberService.ListIds([]uint{list.Id})
-      createSubscriberService.Attributes(attrs)
+			createSubscriberService.ListIds([]uint{list.Id})
+			createSubscriberService.Attributes(attrs)
 			sub, err := createSubscriberService.Do(context.Background())
 			check(err)
 			subscribers[i] = sub
 			defer deleteSubscriber(client, sub.Id)
 		}
 
-    result, err := client.ListSubscribers(listName)
+		result, err := client.ListSubscribers(listName)
 
-    if assert.NoError(t, err) {
-      assert.Contains(t, result, map[string]string{
-          "id": strconv.Itoa(int(subscribers[0].Id)),
-          "email": "test0@example.com",
-          "expiration_date":  "2025-09-07",
-        })
-      assert.Contains(t, result, map[string]string{
-          "id": strconv.Itoa(int(subscribers[1].Id)),
-          "email": "test1@example.com",
-          "expiration_date":  "2025-09-07",
-        })
+		if assert.NoError(t, err) {
+			assert.Contains(t, result, map[string]string{
+				"id":              strconv.Itoa(int(subscribers[0].Id)),
+				"email":           "test0@example.com",
+				"expiration_date": "2025-09-07",
+			})
+			assert.Contains(t, result, map[string]string{
+				"id":              strconv.Itoa(int(subscribers[1].Id)),
+				"email":           "test1@example.com",
+				"expiration_date": "2025-09-07",
+			})
+		}
+	})
+}
+
+func TestFormatEmailTemplate(t *testing.T) {
+	client := initAPIClient()
+	t.Run("correct", func(t *testing.T) {
+		emailType := "desktop"
+		name := "John Doe"
+		password := "password"
+		expiration_date := "2025-08-10"
+		expected := fmt.Sprintf(`Dear Customer,
+
+Thank you for shopping at 3mdeb.com and supporting the
+open-source firmware and Dasharo distribution.
+
+*Your Subscription Data* are:
+   Password: %s
+   Expiration Date: %s
+
+In the documentation [1], you will find information on how to prepare
+the bootable USB stick with Dasharo Tools Suite.
+The keys need to be provided in the booted DTS system [2]. We have prepared
+instructions that describe how to use them [3].
+
+You will also receive an invitation later this day on your e-mail
+address to the dedicated Dasharo Premier Support Matrix Channel.
+
+[1]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#bootable-usb-stick
+[2]: https://docs.dasharo.com/osf-trivia-list/dts/#how-can-i-use-my-dasharo-entry-subscription-credentials
+[3]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#dasharo-zero-touch-initial-deployment
+
+Best regards,
+%s
+`, password, expiration_date, name)
+
+		text, err := client.formatEmailTemplate(emailType, name, password, expiration_date)
+		if assert.NoError(t, err) {
+			assert.Equal(t, expected, text)
+		}
+	})
+
+	t.Run("wrong email type", func(t *testing.T) {
+		emailType := "???"
+		name := "John Doe"
+		password := "password"
+		expiration_date := "2025-08-10"
+		_, err := client.formatEmailTemplate(emailType, name, password, expiration_date)
+		assert.ErrorContains(t, err, "Wrong email type! Available types:")
+	})
+}
+
+func TestSendEmail(t *testing.T) {
+  client := initAPIClient()
+  t.Run("correct", func(t *testing.T) {
+    email := "test@example.com"
+    password := "password"
+    subscriptionType := "MSI"
+    expiration_date := "2025-08-12"
+    createSubscriberService := client.Client.NewCreateSubscriberService()
+    createSubscriberService.Name(email)
+    createSubscriberService.Email(email)
+    createSubscriberService.Status("enabled")
+    subscriber, err := createSubscriberService.Do(context.Background()) 
+    check(err)
+    defer deleteSubscriber(client, subscriber.Id)
+    attrs := map[string]interface{}{
+      "key": password,
+      fmt.Sprintf("expiration_date_%s", strings.ToLower(subscriptionType)): expiration_date,
     }
+    err = client.UpdateSubscriberAttributesEmail(email, attrs)
+    check(err)
+    err = client.SendEmail(subscriptionType, email, "John Doe")
+    assert.NoError(t, err)
+  })
+
+  t.Run("wrong subscription type", func(t *testing.T) {
+    email := "test@example.com"
+    password := "password"
+    subscriptionType := "wrong"
+    expiration_date := "2025-08-12"
+    createSubscriberService := client.Client.NewCreateSubscriberService()
+    createSubscriberService.Name(email)
+    createSubscriberService.Email(email)
+    createSubscriberService.Status("enabled")
+    subscriber, err := createSubscriberService.Do(context.Background()) 
+    check(err)
+    defer deleteSubscriber(client, subscriber.Id)
+    attrs := map[string]interface{}{
+      "key": password,
+      fmt.Sprintf("expiration_date_%s", strings.ToLower(subscriptionType)): expiration_date,
+    }
+    err = client.UpdateSubscriberAttributesEmail(email, attrs)
+    check(err)
+    err = client.SendEmail(subscriptionType, email, "John Doe")
+    assert.ErrorContains(t, err, "Wrong email type! Available types")
   })
 }

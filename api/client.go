@@ -14,6 +14,16 @@ import (
 	listmonk "github.com/Exayn/go-listmonk"
 )
 
+// Map subscription types to email templates
+var subscriptionMap = map[string]string{
+	"MSI":                   "desktop",
+	"MSI_heads":             "desktop",
+	"Optiplex_Dasharo_UEFI": "desktop",
+	"novacustom_heads":      "laptop",
+	"PCEngines":             "network",
+	"PCEngines_seabios":     "network",
+}
+
 type APIClient struct {
 	BaseURL        string
 	Username       *string
@@ -55,7 +65,6 @@ func NewAPIClient(baseURL string, username, password *string) *APIClient {
 func (c *APIClient) setListIDs() error {
 	getListsService := c.Client.NewGetListsService()
 	lists, err := getListsService.Do(context.Background())
-
 	if err != nil {
 		return err
 	}
@@ -72,7 +81,6 @@ func (c *APIClient) createList(name string) (*listmonk.List, error) {
 	createListService := c.Client.NewCreateListService()
 	createListService.Name(name)
 	list, err := createListService.Do(context.Background())
-
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +120,7 @@ func (c *APIClient) CreateSubscriberListIDs(name string, email string, lists []u
 	if err != nil {
 		return 0, err
 	}
-  LogOKln("Success")
+	LogOKln("Success")
 	return subscriber.Id, nil
 }
 
@@ -126,21 +134,25 @@ func (c *APIClient) CreateSubscriberFromJSON(jsonData []byte) (uint, error) {
 	return c.CreateSubscriber(input.Name, input.Email, input.Lists, input.Attrs)
 }
 
-// Create a new campaign with HTML content
-func (c *APIClient) CreateCampaignHTML(name string, subject string, lists []uint, content string) (uint, error) {
+func (c *APIClient) CreateCampaign(name, subject string, lists []uint, content, contentType string) (uint, error) {
 	service := c.Client.NewCreateCampaignService()
 	service.Name(name)
 	service.Subject(subject)
 	service.Lists(lists)
 	service.Body(content)
-	service.ContentType("html")
-  LogInfof("Creating campaign: %s.\n", name)
+	service.ContentType(contentType)
+	LogInfof("Creating campaign: %s.\n", name)
 	campaign, err := service.Do(context.Background())
 	if err != nil {
 		return 0, err
 	}
-  LogOKln("Campaign created.")
+	LogOKln("Campaign created.")
 	return campaign.Id, nil
+}
+
+// Create a new campaign with HTML content
+func (c *APIClient) CreateCampaignHTML(name string, subject string, lists []uint, content string) (uint, error) {
+	return c.CreateCampaign(name, subject, lists, content, "html")
 }
 
 func (c *APIClient) deleteCampaign(campaign *listmonk.Campaign) error {
@@ -154,7 +166,6 @@ func (c *APIClient) getSubscribersAfterLaunch(campaign *listmonk.Campaign) ([]*l
 	LogInfof("Checking for already-existing incremental campaign.\n")
 	getCampaignsService := c.Client.NewGetCampaignsService()
 	campaigns, err := getCampaignsService.Do(context.Background())
-
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +242,6 @@ func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 	LogInfoln("Fetching campaign data.")
 
 	campaign, err := getCampaignService.Do(context.Background())
-
 	if err != nil {
 		return false, err
 	}
@@ -252,12 +262,11 @@ func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-    LogOKf("Successfully launched campaign %s.\n", campaign.Name)
+		LogOKf("Successfully launched campaign %s.\n", campaign.Name)
 		return true, nil
 	}
 
 	subscribers, err := c.getSubscribersAfterLaunch(campaign)
-
 	if err != nil {
 		return false, err
 	}
@@ -269,20 +278,17 @@ func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 
 	// Create temporary list
 	tempList, err := c.createList("temp_list")
-
 	if err != nil {
 		return false, err
 	}
 
 	// Add subscribers to temporary list
 	err = c.addSubscribersToList(subscribers, tempList)
-
 	if err != nil {
 		return false, err
 	}
 
 	incCampaign, err := c.createIncCampaign(campaign, tempList)
-
 	if err != nil {
 		return false, err
 	}
@@ -294,7 +300,6 @@ func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 
 	LogInfoln("Launching incremental campaign.")
 	_, err = updateCampaignStatusService.Do(context.Background())
-
 	if err != nil {
 		return false, err
 	}
@@ -303,12 +308,11 @@ func (c *APIClient) LaunchCampaign(id uint) (bool, error) {
 	deleteListService := c.Client.NewDeleteListService()
 	deleteListService.Id(tempList.Id)
 	err = deleteListService.Do(context.Background())
-
 	if err != nil {
 		return false, err
 	}
 
-  LogOKf("Successfully resumed campaign %s.\n", campaign.Name)
+	LogOKf("Successfully resumed campaign %s.\n", campaign.Name)
 	return true, nil
 }
 
@@ -317,7 +321,7 @@ func (c *APIClient) DeleteSubscriberID(id uint) error {
 	deleteSubscriberService := c.Client.NewDeleteSubscriberService()
 	deleteSubscriberService.Id(id)
 	_, err := deleteSubscriberService.Do(context.Background())
-  LogOKln("Successfully deleted subscriber.")
+	LogOKln("Successfully deleted subscriber.")
 	return err
 }
 
@@ -326,7 +330,6 @@ func (c *APIClient) getSubscriberID(email string) (uint, error) {
 	getSubscribersService := c.Client.NewGetSubscribersService()
 	getSubscribersService.Query(fmt.Sprintf("subscribers.email = '%s'", email))
 	subscribers, err := getSubscribersService.Do(context.Background())
-
 	if err != nil {
 		return 0, err
 	}
@@ -342,9 +345,8 @@ func (c *APIClient) getSubscriberID(email string) (uint, error) {
 
 // Delete subscriber by email
 func (c *APIClient) DeleteSubscriberEmail(email string) error {
-  LogInfof("Deleting subscriber %s from Listmonk.\n", email)
+	LogInfof("Deleting subscriber %s from Listmonk.\n", email)
 	subscriberID, err := c.getSubscriberID(email)
-
 	if err != nil {
 		return err
 	}
@@ -355,7 +357,7 @@ func (c *APIClient) DeleteSubscriberEmail(email string) error {
 // Add subscribers from CSV file.
 // Assumes CSV has columns: Duration (years), Email, Date received, Expiration date
 func (c *APIClient) AddSubscribersFromCSV(path, list string, passwords map[string]string) error {
-  LogInfoln("Adding subscribers from CSV to Listmonk.")
+	LogInfoln("Adding subscribers from CSV to Listmonk.")
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -393,24 +395,24 @@ func (c *APIClient) AddSubscribersFromCSV(path, list string, passwords map[strin
 
 		// If subscriber does not already exists
 		if _, err := c.getSubscriberID(email); err != nil {
-      LogInfof("Subscriber %s does not exist in Listmonk. Adding now.\n", email)
+			LogInfof("Subscriber %s does not exist in Listmonk. Adding now.\n", email)
 			_, err = c.CreateSubscriber(email, email, []string{list}, attrs)
 			if err != nil {
 				return err
 			}
-      LogOKf("Added subscriber %s.\n", email)
+			LogOKf("Added subscriber %s.\n", email)
 			continue
 		}
 		err := c.AddToList(email, list)
 		if err != nil {
 			return err
 		}
-    LogInfof("Adding new subscription for subscriber %s.\n", email)
-    err = c.SetAttribute(email, fmt.Sprintf("duration_%s", strings.ToLower(list)), duration)
+		LogInfof("Adding new subscription for subscriber %s.\n", email)
+		err = c.SetAttribute(email, fmt.Sprintf("duration_%s", strings.ToLower(list)), duration)
 		if err != nil {
 			return err
 		}
-    err = c.SetAttribute(email, fmt.Sprintf("created_%s", strings.ToLower(list)), received)
+		err = c.SetAttribute(email, fmt.Sprintf("created_%s", strings.ToLower(list)), received)
 		if err != nil {
 			return err
 		}
@@ -418,7 +420,7 @@ func (c *APIClient) AddSubscribersFromCSV(path, list string, passwords map[strin
 		if err != nil {
 			return err
 		}
-    LogOKln("Success.")
+		LogOKln("Success.")
 	}
 	return nil
 }
@@ -427,7 +429,6 @@ func (c *APIClient) AddSubscribersFromCSV(path, list string, passwords map[strin
 func (c *APIClient) CreateCampaignHTMLOnListName(campaignName string, subject string, listName string, content string) (uint, error) {
 	getListsService := c.Client.NewGetListsService()
 	lists, err := getListsService.Do(context.Background())
-
 	if err != nil {
 		return 0, err
 	}
@@ -443,7 +444,6 @@ func (c *APIClient) CreateCampaignHTMLOnListName(campaignName string, subject st
 // Modify subscriber list memberships.
 func (c *APIClient) updateSubscriberLists(email string, listNames []string, action string) error {
 	subscriberID, err := c.getSubscriberID(email)
-
 	if err != nil {
 		return err
 	}
@@ -467,21 +467,21 @@ func (c *APIClient) updateSubscriberLists(email string, listNames []string, acti
 	subscribersListsService.ListIds(listIDs)
 	subscribersListsService.Action(action)
 	_, err = subscribersListsService.Do(context.Background())
-  if err == nil {
-    LogOKln("Success")
-  }
+	if err == nil {
+		LogOKln("Success")
+	}
 	return err
 }
 
 // Remove subscriber from a list. Deletes subscriber if removed from all lists.
 func (c *APIClient) RemoveFromList(email string, listName string) error {
-  LogInfof("Removing subscriber %s from list %s.\n", email, listName)
+	LogInfof("Removing subscriber %s from list %s.\n", email, listName)
 	return c.updateSubscriberLists(email, []string{listName}, "remove")
 }
 
 // Add subscriber to list
 func (c *APIClient) AddToList(email string, listName string) error {
-  LogInfof("Adding subscriber %s to list %s.\n", email, listName)
+	LogInfof("Adding subscriber %s to list %s.\n", email, listName)
 	return c.updateSubscriberLists(email, []string{listName}, "add")
 }
 
@@ -489,7 +489,6 @@ func (c *APIClient) AddToList(email string, listName string) error {
 func (c *APIClient) LaunchCampaignListName(listName string) (bool, error) {
 	getCampaignsService := c.Client.NewGetCampaignsService()
 	campaigns, err := getCampaignsService.Do(context.Background())
-
 	if err != nil {
 		return false, err
 	}
@@ -507,7 +506,6 @@ func (c *APIClient) LaunchCampaignListName(listName string) (bool, error) {
 // Add subscriber to list and launch campaign
 func (c *APIClient) AddAndSendCampaign(email string, listName string) (bool, error) {
 	err := c.AddToList(email, listName)
-
 	if err != nil {
 		return false, err
 	}
@@ -595,7 +593,7 @@ func (c *APIClient) SetAttribute(email, key, value string) error {
 }
 
 func (c *APIClient) ListSubscribers(listName string) ([]map[string]string, error) {
-  LogInfof("Fetching subscribers of list %s.\n", listName)
+	LogInfof("Fetching subscribers of list %s.\n", listName)
 	var result []map[string]string
 	listID, err := c.getListID(listName)
 	getSubscribersService := c.Client.NewGetSubscribersService()
@@ -622,6 +620,95 @@ func (c *APIClient) ListSubscribers(listName string) ([]map[string]string, error
 			}
 		}
 	}
-  LogOKln("Success")
+	LogOKln("Success")
 	return result, nil
+}
+
+func (c *APIClient) DeleteList(name string) error {
+	LogInfof("Deleting list: %s.\n", name)
+	listID, err := c.getListID(name)
+	if err != nil {
+		return fmt.Errorf("Could not delete list: %s", name)
+	}
+	deleteListService := c.Client.NewDeleteListService()
+	deleteListService.Id(listID)
+	err = deleteListService.Do(context.Background())
+	if err == nil {
+		LogOKln("Success")
+	}
+	return err
+}
+
+func (c *APIClient) formatEmailTemplate(emailType, name, password, expiration_date string) (string, error) {
+	var filePath string
+	switch emailType {
+	case "desktop":
+		filePath = "../config/dpp_desktop"
+	case "laptop":
+		filePath = "../config/dpp_laptop"
+	case "network":
+		filePath = "../config/dpp_network"
+	default:
+		return "", fmt.Errorf("Wrong email type! Available types: desktop, laptop, network")
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("Could not read file: %w", err)
+	}
+
+	text := string(content)
+	text = strings.ReplaceAll(text, "${key}", password)
+	text = strings.ReplaceAll(text, "${expiration_date}", expiration_date)
+	text = strings.ReplaceAll(text, "${name}", name)
+	return text, nil
+}
+
+func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name string) error {
+	LogInfof("Sending email to subscriber %s.\n", subscriberEmail)
+	attrs, err := c.GetSubscriberAttributesEmail(subscriberEmail)
+	if err != nil {
+		return err
+	}
+	password, ok := attrs["key"].(string)
+	if !ok {
+		return fmt.Errorf("User key is not a string or does not exit")
+	}
+	expiration_date, ok := attrs[fmt.Sprintf("expiration_date_%s", strings.ToLower(subscriptionType))].(string)
+	if !ok {
+		return fmt.Errorf("Expiration date is not a string or does not exist")
+	}
+	emailType := subscriptionMap[subscriptionType]
+	content, err := c.formatEmailTemplate(emailType, name, password, expiration_date)
+	if err != nil {
+		return err
+	}
+	listname := "tmplist"
+	list, err := c.createList(listname)
+	if err != nil {
+		return err
+	}
+	err = c.AddToList(subscriberEmail, listname)
+	if err != nil {
+		return err
+	}
+	campaignID, err := c.CreateCampaign("tmpcampaign", "TBD", []uint{list.Id}, content, "plain")
+	if err != nil {
+		return err
+	}
+	_, err = c.LaunchCampaign(campaignID)
+	if err != nil {
+		return err
+	}
+	getCampaignService := c.Client.NewGetCampaignService()
+	getCampaignService.Id(campaignID)
+	campaign, err := getCampaignService.Do(context.Background())
+	if err != nil {
+		return err
+	}
+	err = c.deleteCampaign(campaign)
+	if err != nil {
+		return err
+	}
+	return c.DeleteList(listname)
 }

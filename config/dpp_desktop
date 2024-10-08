@@ -1,0 +1,23 @@
+Dear Customer,
+
+Thank you for shopping at 3mdeb.com and supporting the
+open-source firmware and Dasharo distribution.
+
+*Your Subscription Data* are:
+   Password: ${key}
+   Expiration Date: ${expiration_date}
+
+In the documentation [1], you will find information on how to prepare
+the bootable USB stick with Dasharo Tools Suite.
+The keys need to be provided in the booted DTS system [2]. We have prepared
+instructions that describe how to use them [3].
+
+You will also receive an invitation later this day on your e-mail
+address to the dedicated Dasharo Premier Support Matrix Channel.
+
+[1]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#bootable-usb-stick
+[2]: https://docs.dasharo.com/osf-trivia-list/dts/#how-can-i-use-my-dasharo-entry-subscription-credentials
+[3]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#dasharo-zero-touch-initial-deployment
+
+Best regards,
+${name}
