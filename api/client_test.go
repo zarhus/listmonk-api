@@ -1208,7 +1208,7 @@ Best regards,
 %s
 `, password, expiration_date, name)
 
-		text, err := client.formatEmailTemplate(emailType, name, password, expiration_date)
+		text, err := client.formatEmailTemplate(emailType, name, password, expiration_date, "../config")
 		if assert.NoError(t, err) {
 			assert.Equal(t, expected, text)
 		}
@@ -1219,7 +1219,7 @@ Best regards,
 		name := "John Doe"
 		password := "password"
 		expiration_date := "2025-08-10"
-		_, err := client.formatEmailTemplate(emailType, name, password, expiration_date)
+		_, err := client.formatEmailTemplate(emailType, name, password, expiration_date, "../config")
 		assert.ErrorContains(t, err, "Wrong email type! Available types:")
 	})
 }
@@ -1244,7 +1244,7 @@ func TestSendEmail(t *testing.T) {
     }
     err = client.UpdateSubscriberAttributesEmail(email, attrs)
     check(err)
-    err = client.SendEmail(subscriptionType, email, "John Doe")
+    err = client.SendEmail(subscriptionType, email, "John Doe", "../config")
     assert.NoError(t, err)
   })
 
@@ -1266,7 +1266,7 @@ func TestSendEmail(t *testing.T) {
     }
     err = client.UpdateSubscriberAttributesEmail(email, attrs)
     check(err)
-    err = client.SendEmail(subscriptionType, email, "John Doe")
+    err = client.SendEmail(subscriptionType, email, "John Doe", "../config")
     assert.ErrorContains(t, err, "Wrong email type! Available types")
   })
 }

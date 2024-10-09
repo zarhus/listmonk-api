@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+  "path/filepath"
 
 	listmonk "github.com/Exayn/go-listmonk"
 )
@@ -639,15 +640,15 @@ func (c *APIClient) DeleteList(name string) error {
 	return err
 }
 
-func (c *APIClient) formatEmailTemplate(emailType, name, password, expiration_date string) (string, error) {
+func (c *APIClient) formatEmailTemplate(emailType, name, password, expiration_date, config_path string) (string, error) {
 	var filePath string
 	switch emailType {
 	case "desktop":
-		filePath = "../config/dpp_desktop"
+    filePath = filepath.Join(config_path, "dpp_desktop")
 	case "laptop":
-		filePath = "../config/dpp_laptop"
+    filePath = filepath.Join(config_path, "dpp_laptop")
 	case "network":
-		filePath = "../config/dpp_network"
+    filePath = filepath.Join(config_path, "dpp_network")
 	default:
 		return "", fmt.Errorf("Wrong email type! Available types: desktop, laptop, network")
 	}
@@ -664,7 +665,7 @@ func (c *APIClient) formatEmailTemplate(emailType, name, password, expiration_da
 	return text, nil
 }
 
-func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name string) error {
+func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name, config_path string) error {
 	LogInfof("Sending email to subscriber %s.\n", subscriberEmail)
 	attrs, err := c.GetSubscriberAttributesEmail(subscriberEmail)
 	if err != nil {
@@ -679,7 +680,7 @@ func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name string) er
 		return fmt.Errorf("Expiration date is not a string or does not exist")
 	}
 	emailType := subscriptionMap[subscriptionType]
-	content, err := c.formatEmailTemplate(emailType, name, password, expiration_date)
+	content, err := c.formatEmailTemplate(emailType, name, password, expiration_date, config_path)
 	if err != nil {
 		return err
 	}
