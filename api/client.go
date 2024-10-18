@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
   "path/filepath"
+	"golang.org/x/exp/maps"
 
 	listmonk "github.com/Exayn/go-listmonk"
 )
@@ -38,6 +39,10 @@ type SubscriberInput struct {
 	Email string                 `json:"email"`
 	Lists []string               `json:"lists"`
 	Attrs map[string]interface{} `json:"attrs"`
+}
+
+func GetSubscriptionTypes() []string {
+  return maps.Keys(subscriptionMap)
 }
 
 func mapping[T, U any](ts []T, f func(T) U) []U {
