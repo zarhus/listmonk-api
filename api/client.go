@@ -142,6 +142,7 @@ func (c *APIClient) CreateCampaign(name, subject string, lists []uint, content, 
 	service.Lists(lists)
 	service.Body(content)
 	service.ContentType(contentType)
+  service.FromEmail("newsletter@3mdeb.com")
 	LogInfof("Creating campaign: %s.\n", name)
 	campaign, err := service.Do(context.Background())
 	if err != nil {
