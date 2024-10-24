@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-  "path/filepath"
+	"time"
+
 	"golang.org/x/exp/maps"
 
 	listmonk "github.com/Exayn/go-listmonk"
@@ -699,7 +701,7 @@ func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name, config_pa
 	if err != nil {
 		return err
 	}
-	campaignID, err := c.CreateCampaign("tmpcampaign", "TBD", []uint{list.Id}, content, "plain")
+	campaignID, err := c.CreateCampaign("tmpcampaign", "DPP credentials", []uint{list.Id}, content, "html")
 	if err != nil {
 		return err
 	}
@@ -713,6 +715,8 @@ func (c *APIClient) SendEmail(subscriptionType, subscriberEmail, name, config_pa
 	if err != nil {
 		return err
 	}
+
+  time.Sleep(10 * time.Second)
 	err = c.deleteCampaign(campaign)
 	if err != nil {
 		return err

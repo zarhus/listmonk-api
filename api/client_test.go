@@ -1184,27 +1184,33 @@ func TestFormatEmailTemplate(t *testing.T) {
 		password := "password"
 		expiration_date := "2025-08-10"
 		expected := fmt.Sprintf(`Dear Customer,
-
+</br>
 Thank you for shopping at 3mdeb.com and supporting the
 open-source firmware and Dasharo distribution.
-
+</br>
 *Your Subscription Data* are:
+</br>
    Password: %s
+   </br>
    Expiration Date: %s
+   </br>
 
 In the documentation [1], you will find information on how to prepare
 the bootable USB stick with Dasharo Tools Suite.
 The keys need to be provided in the booted DTS system [2]. We have prepared
 instructions that describe how to use them [3].
-
+</br>
 You will also receive an invitation later this day on your e-mail
 address to the dedicated Dasharo Premier Support Matrix Channel.
-
+</br>
 [1]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#bootable-usb-stick
+</br>
 [2]: https://docs.dasharo.com/osf-trivia-list/dts/#how-can-i-use-my-dasharo-entry-subscription-credentials
+</br>
 [3]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#dasharo-zero-touch-initial-deployment
-
+</br>
 Best regards,
+</br>
 %s
 `, password, expiration_date, name)
 

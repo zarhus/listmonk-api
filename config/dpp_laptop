@@ -1,21 +1,25 @@
 Dear Customer,
-
+</br>
 Thank you for supporting the open-source firmware and Dasharo distribution.
-
+</br>
 *Your Subscription Data* are:
+</br>
    Password: ${key}
+   </br>
    Expiration Date: ${expiration_date}
+   </br>
 
 In the documentation [1], you will find information on how to prepare
 the bootable USB stick with Dasharo Tools Suite. The keys need to be
 provided in the booted DTS system [2].
-
+</br>
 You will also receive an invitation later today to the dedicated
 Dasharo Premier Support Matrix Channel, as well as the latest newsletter,
 at your email address.
-
+</br>
 [1]: https://docs.dasharo.com/dasharo-tools-suite/documentation/#bootable-usb-stick
 [2]: https://docs.dasharo.com/osf-trivia-list/dts/#how-can-i-use-my-dasharo-entry-subscription-credentials
-
+</br>
 Best regards,
+</br>
 ${name}
